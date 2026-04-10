@@ -104,7 +104,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>./src;../include;../../../../src;../../../../src/common;../include/zlib;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>./src;../include;../../../../native;../../../../native/common;../include/zlib;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -121,7 +121,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>./src;../include;../../../../src;../../../../src/common;../include/zlib;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>./src;../include;../../../../native;../../../../native/common;../include/zlib;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -135,38 +135,38 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\..\src\archo.cpp" />
-    <ClCompile Include="..\..\..\..\src\bundle.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\archive.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\base64.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\fs.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\json.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\log.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\sha.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\timer.cpp" />
-    <ClCompile Include="..\..\..\..\src\common\util.cpp" />
-    <ClCompile Include="..\..\..\..\src\macho.cpp" />
-    <ClCompile Include="..\..\..\..\src\openssl.cpp" />
-    <ClCompile Include="..\..\..\..\src\signing.cpp" />
-    <ClCompile Include="..\..\..\..\src\zsign.cpp" />
+    <ClCompile Include="..\..\..\..\native\archo.cpp" />
+    <ClCompile Include="..\..\..\..\native\bundle.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\archive.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\base64.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\fs.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\json.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\log.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\sha.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\timer.cpp" />
+    <ClCompile Include="..\..\..\..\native\common\util.cpp" />
+    <ClCompile Include="..\..\..\..\native\macho.cpp" />
+    <ClCompile Include="..\..\..\..\native\openssl.cpp" />
+    <ClCompile Include="..\..\..\..\native\signing.cpp" />
+    <ClCompile Include="..\..\..\..\native\zsign.cpp" />
     <ClCompile Include="src\getopt.cpp" />
     <ClCompile Include="src\iconv.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\..\src\archo.h" />
-    <ClInclude Include="..\..\..\..\src\bundle.h" />
-    <ClInclude Include="..\..\..\..\src\common\archive.h" />
-    <ClInclude Include="..\..\..\..\src\common\base64.h" />
-    <ClInclude Include="..\..\..\..\src\common\common.h" />
-    <ClInclude Include="..\..\..\..\src\common\fs.h" />
-    <ClInclude Include="..\..\..\..\src\common\json.h" />
-    <ClInclude Include="..\..\..\..\src\common\log.h" />
-    <ClInclude Include="..\..\..\..\src\common\sha.h" />
-    <ClInclude Include="..\..\..\..\src\common\timer.h" />
-    <ClInclude Include="..\..\..\..\src\common\util.h" />
-    <ClInclude Include="..\..\..\..\src\macho.h" />
-    <ClInclude Include="..\..\..\..\src\openssl.h" />
-    <ClInclude Include="..\..\..\..\src\signing.h" />
+    <ClInclude Include="..\..\..\..\native\archo.h" />
+    <ClInclude Include="..\..\..\..\native\bundle.h" />
+    <ClInclude Include="..\..\..\..\native\common\archive.h" />
+    <ClInclude Include="..\..\..\..\native\common\base64.h" />
+    <ClInclude Include="..\..\..\..\native\common\common.h" />
+    <ClInclude Include="..\..\..\..\native\common\fs.h" />
+    <ClInclude Include="..\..\..\..\native\common\json.h" />
+    <ClInclude Include="..\..\..\..\native\common\log.h" />
+    <ClInclude Include="..\..\..\..\native\common\sha.h" />
+    <ClInclude Include="..\..\..\..\native\common\timer.h" />
+    <ClInclude Include="..\..\..\..\native\common\util.h" />
+    <ClInclude Include="..\..\..\..\native\macho.h" />
+    <ClInclude Include="..\..\..\..\native\openssl.h" />
+    <ClInclude Include="..\..\..\..\native\signing.h" />
     <ClInclude Include="src\common_win32.h" />
     <ClInclude Include="src\getopt.h" />
     <ClInclude Include="src\iconv.h" />

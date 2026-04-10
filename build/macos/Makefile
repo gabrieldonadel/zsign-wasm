@@ -10,7 +10,7 @@ MINIZIP_INCLUDE = $(shell pkg-config --cflags minizip)
 OPENSSL_LIB = $(shell pkg-config --libs openssl)
 MINIZIP_LIB = $(shell pkg-config --libs minizip)
 
-INCLUDES = -I../../src -I../../src/common
+INCLUDES = -I../../native -I../../native/common
 INCLUDES += $(OPENSSL_INCLUDE)
 INCLUDES += $(MINIZIP_INCLUDE)
 
@@ -20,8 +20,8 @@ LIBS += $(MINIZIP_LIB)
 OBJDIR = .build
 BINDIR = ../../bin
 
-SRCS = $(wildcard ../../src/*.cpp) $(wildcard ../../src/common/*.cpp)
-OBJS = $(SRCS:../../src/%.cpp=$(OBJDIR)/%.o)
+SRCS = $(wildcard ../../native/*.cpp) $(wildcard ../../native/common/*.cpp)
+OBJS = $(SRCS:../../native/%.cpp=$(OBJDIR)/%.o)
 
 TARGET = $(BINDIR)/zsign
 
@@ -32,7 +32,7 @@ $(TARGET): $(OBJS)
 	@mkdir -p $(BINDIR)
 	$(CXX) $(OBJS) $(LIBS) -o $(TARGET)
 
-$(OBJDIR)/%.o: ../../src/%.cpp
+$(OBJDIR)/%.o: ../../native/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 

@@ -1,4 +1,4 @@
-const { ZsignWasmClient } = require('../dist/zsign-wasm.min.js');
+const { ZsignWasmClient } = require('../binary/zsign-wasm.min.js');
 const fs = require('fs');
 (async () => {
     const client = await ZsignWasmClient.create();

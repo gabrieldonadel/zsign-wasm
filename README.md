@@ -27,16 +27,16 @@ Activate emscripten environment first:
 source /path/to/emsdk/emsdk_env.sh
 ```
 
-Then build wasm and bundle outputs:
+Then build the wasm package:
 
 ```bash
-cd build/wasm
-make clean && make bundle
+bun run build
 ```
 
-Bundle outputs are generated in `dist/`:
-- `zsign-wasm.min.js` (single file, includes wasm)
-- `zsign-wasm.js` + `zsign-wasm.wasm` + `ZsignWasmClient.js` (split files)
+Package sources stay in `src/`, compiled JS lands in `dist/`, and wasm runtime files land in `binary/`:
+- `dist/index.js` + `dist/browser.js`
+- `binary/zsign-wasm.min.js`
+- `binary/zsign-wasm.js` + `binary/zsign-wasm.wasm` + `binary/ZsignWasmClient.js`
 
 
 Prepare OpenSSL wasm first (for example: [openssl-wasm](https://github.com/jedisct1/openssl-wasm)).
@@ -51,7 +51,7 @@ make clean && make bundle OPENSSL_WASM=/absolute/path/to/openssl-wasm/precompile
 Node usage (single-file bundle):
 
 ```js
-const { ZsignWasmClient } = require('./dist/zsign-wasm.min.js');
+const { ZsignWasmClient } = require('./binary/zsign-wasm.min.js');
 const fs = require('fs');
 
 (async () => {
@@ -82,7 +82,7 @@ bun run build
 ```
 
 ```js
-import { createResigner } from 'zsign-wasm-resigner';
+import { createResigner } from '@lbr77/zsign-wasm-resigner-wrapper';
 
 const resigner = await createResigner();
 const signedIpa = await resigner.signIpa(inputIpaBytes, {
@@ -98,16 +98,10 @@ const signedIpa = await resigner.signIpa(inputIpaBytes, {
 });
 ```
 
-TypeScript wrapper usage (enhanced type safety):
-
-```bash
-cd js
-npm install
-npm run build
-```
+TypeScript package usage:
 
 ```typescript
-import { createClient, createResigner } from './js/dist/index';
+import { createClient, createResigner } from './dist/index.js';
 import * as fs from 'fs';
 
 // Sign Mach-O files

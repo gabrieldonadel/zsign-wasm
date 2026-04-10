@@ -16,4 +16,5 @@ test/packages/*
 .theos/
 packages/
 dist/*
+binary/
 node_modules/

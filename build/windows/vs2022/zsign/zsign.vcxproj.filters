@@ -15,28 +15,28 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\..\src\archo.cpp">
+    <ClCompile Include="..\..\..\..\native\archo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\bundle.cpp">
+    <ClCompile Include="..\..\..\..\native\bundle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\macho.cpp">
+    <ClCompile Include="..\..\..\..\native\macho.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\openssl.cpp">
+    <ClCompile Include="..\..\..\..\native\openssl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\signing.cpp">
+    <ClCompile Include="..\..\..\..\native\signing.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\zsign.cpp">
+    <ClCompile Include="..\..\..\..\native\zsign.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\base64.cpp">
+    <ClCompile Include="..\..\..\..\native\common\base64.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\json.cpp">
+    <ClCompile Include="..\..\..\..\native\common\json.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\iconv.cpp">
@@ -45,48 +45,48 @@
     <ClCompile Include="src\getopt.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\timer.cpp">
+    <ClCompile Include="..\..\..\..\native\common\timer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\log.cpp">
+    <ClCompile Include="..\..\..\..\native\common\log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\fs.cpp">
+    <ClCompile Include="..\..\..\..\native\common\fs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\util.cpp">
+    <ClCompile Include="..\..\..\..\native\common\util.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\sha.cpp">
+    <ClCompile Include="..\..\..\..\native\common\sha.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\src\common\archive.cpp">
+    <ClCompile Include="..\..\..\..\native\common\archive.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\..\src\archo.h">
+    <ClInclude Include="..\..\..\..\native\archo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\bundle.h">
+    <ClInclude Include="..\..\..\..\native\bundle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\macho.h">
+    <ClInclude Include="..\..\..\..\native\macho.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\openssl.h">
+    <ClInclude Include="..\..\..\..\native\openssl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\signing.h">
+    <ClInclude Include="..\..\..\..\native\signing.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\base64.h">
+    <ClInclude Include="..\..\..\..\native\common\base64.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\common.h">
+    <ClInclude Include="..\..\..\..\native\common\common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\json.h">
+    <ClInclude Include="..\..\..\..\native\common\json.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\iconv.h">
@@ -95,25 +95,25 @@
     <ClInclude Include="src\getopt.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\timer.h">
+    <ClInclude Include="..\..\..\..\native\common\timer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\log.h">
+    <ClInclude Include="..\..\..\..\native\common\log.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\fs.h">
+    <ClInclude Include="..\..\..\..\native\common\fs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\util.h">
+    <ClInclude Include="..\..\..\..\native\common\util.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\sha.h">
+    <ClInclude Include="..\..\..\..\native\common\sha.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\common_win32.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\src\common\archive.h">
+    <ClInclude Include="..\..\..\..\native\common\archive.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

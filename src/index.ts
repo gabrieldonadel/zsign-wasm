@@ -1,12 +1,14 @@
 import type {
   SignMachOOptions,
   SignIpaOptions
-} from '../npm/index.mjs';
+} from "./runtime.js";
 
 import {
   ZsignWasmResigner,
-  ZsignWasmClient
-} from '../npm/index.mjs';
+  ZsignWasmClient,
+  createEmbeddedZsignModule,
+  createZsignModule
+} from "./runtime.js";
 
 export interface CreateResignerOptions {
   moduleFactory?: (opts?: Record<string, unknown>) => Promise<unknown>;
@@ -115,7 +117,14 @@ export async function createResigner(options?: CreateResignerOptions): Promise<Z
 export type {
   SignMachOOptions,
   SignIpaOptions
-};
+} from "./runtime.js";
+
+export {
+  ZsignWasmClient,
+  ZsignWasmResigner,
+  createEmbeddedZsignModule,
+  createZsignModule
+} from "./runtime.js";
 
 // Export certificate chain utilities
 export {
@@ -123,9 +132,9 @@ export {
   certChainBuilder,
   buildCertificateChain,
   buildCertificateChainDER
-} from './certchain.js';
+} from "./certchain.js";
 
 export type {
   CertificateChainOptions,
   P12ChainOptions
-} from './certchain.js';
+} from "./certchain.js";

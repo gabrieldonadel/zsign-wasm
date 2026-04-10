@@ -1,31 +1,41 @@
 {
-  "name": "zsign-wasm-resigner",
+  "name": "@lbr77/zsign-wasm-resigner-wrapper",
   "version": "0.1.0",
-  "description": "WASM full resigning toolkit for ipa/app bundle usage in Node.js and frontend toolchains.",
+  "description": "WASM full resigning toolkit packaged with stable src/dist/binary directories.",
   "license": "MIT",
-  "type": "commonjs",
-  "main": "./npm/index.cjs",
-  "module": "./npm/index.mjs",
-  "types": "./npm/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./npm/index.d.ts",
-      "require": "./npm/index.cjs",
-      "import": "./npm/index.mjs"
-    }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist/zsign-wasm.min.js",
-    "npm/**/*",
+    "dist/**/*",
+    "binary/**/*",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build:wasm": "cd build/wasm && make clean && make bundle",
-    "build": "bun run build:wasm",
+    "build:dist": "bunx tsc -p tsconfig.json",
+    "build": "bun run build:wasm && bun run build:dist",
+    "clean": "rm -rf dist binary",
     "prepack": "bun run build"
   },
   "dependencies": {
     "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "~5.9.3"
   }
 }

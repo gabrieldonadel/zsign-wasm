@@ -7,6 +7,12 @@ extern "C" {
 const char* zsign_version();
 int zsign_set_log_level(int level);
 
+// Override the directory used for intermediate temp files by the *_mem APIs.
+// Pass NULL or "" to reset to the platform default. On iOS/macOS the default is
+// derived from $TMPDIR (the app sandbox), on wasm it is the MEMFS root, and on
+// other platforms it is /tmp. Returns 0 on success.
+int zsign_set_temp_root(const char* path);
+
 // Return 0 on success, non-zero on failure.
 int zsign_sign_macho(
 	const char* input_macho,

@@ -1,0 +1,4 @@
+module Zsign {
+    header "zsign.h"
+    export *
+}

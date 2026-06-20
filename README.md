@@ -17,6 +17,21 @@ Install `ideviceinstaller` for test:
 brew install ideviceinstaller
 ```
 
+### iOS:
+
+Build the signing core as a native `xcframework` to run zsign on-device (uses
+the ARMv8 hardware SHA extensions, far faster than wasm). Requires Xcode and
+prebuilt OpenSSL static libs for iOS:
+
+```bash
+cd build/ios
+make OPENSSL_DEVICE=/abs/path/openssl/ios-arm64 \
+     OPENSSL_SIM=/abs/path/openssl/ios-sim
+```
+
+Output: `build/ios/dist/zsign.xcframework`. See [build/ios/README.md](build/ios/README.md)
+for OpenSSL setup, Swift usage, and integration details.
+
 ### Linux:
 
 #### wasm

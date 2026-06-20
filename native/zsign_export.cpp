@@ -4,9 +4,15 @@
 #include "openssl.h"
 #include "zsign_export.h"
 
+#include <cstdlib>
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #define ZSIGN_EXPORT EMSCRIPTEN_KEEPALIVE
+#elif defined(__APPLE__)
+// Keep the C ABI visible even when the library is compiled with
+// -fvisibility=hidden (as the iOS static library is).
+#define ZSIGN_EXPORT __attribute__((visibility("default")))
 #else
 #define ZSIGN_EXPORT
 #endif
@@ -40,14 +46,42 @@ static bool PrepareTargetPath(const string& inputFile, const string& outputFile,
 	return true;
 }
 
+static string& TempRootStorage()
+{
+	static string sTempRoot;
+	return sTempRoot;
+}
+
+static string DefaultTempRoot()
+{
+#if defined(__EMSCRIPTEN__)
+	// MEMFS root; matches the path the wasm runtime expects.
+	return "/zsign_tmp";
+#elif defined(__APPLE__)
+	// iOS/macOS apps get a writable per-process temp dir via $TMPDIR.
+	const char* tmp = getenv("TMPDIR");
+	if (tmp && tmp[0] != '\0') {
+		string root = tmp;
+		if (root.back() != '/') {
+			root += "/";
+		}
+		root += "zsign_tmp";
+		return root;
+	}
+	return "/tmp/zsign_tmp";
+#else
+	return "/tmp/zsign_tmp";
+#endif
+}
+
 static string GetTempRoot()
 {
-	static string sTempRoot = "/zsign_tmp";
-	static once_flag sOnce;
-	call_once(sOnce, []() {
-		ZFile::CreateFolder(sTempRoot.c_str());
-	});
-	return sTempRoot;
+	string& stored = TempRootStorage();
+	if (stored.empty()) {
+		stored = DefaultTempRoot();
+	}
+	ZFile::CreateFolder(stored.c_str());
+	return stored;
 }
 
 static string BuildTempFilePath(const char* prefix, const char* suffix)
@@ -91,6 +125,18 @@ extern "C" {
 ZSIGN_EXPORT const char* zsign_version()
 {
 	return ZSIGN_VERSION;
+}
+
+ZSIGN_EXPORT int zsign_set_temp_root(const char* path)
+{
+	string& stored = TempRootStorage();
+	if (!path || path[0] == '\0') {
+		stored.clear();
+		return 0;
+	}
+	stored = path;
+	ZFile::CreateFolder(stored.c_str());
+	return 0;
 }
 
 ZSIGN_EXPORT int zsign_set_log_level(int level)

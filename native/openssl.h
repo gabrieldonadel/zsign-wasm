@@ -5,7 +5,6 @@ class ZSignAsset
 {
 public:
 	ZSignAsset();
-	~ZSignAsset();
 
 public:
 	bool Init(const string& strCertFile, 
@@ -37,7 +36,7 @@ private:
 
 public:
 	static bool		CMSError();
-	static void*	GenerateASN1Type(const string& algorithm, const string& value);
+	static void*	GenerateASN1Type(const string& value);
 	static bool		GetCertInfo(void* pcert, jvalue& jvCertInfo);
 	static bool		GetCMSInfo(uint8_t* pCMSData, uint32_t uCMSLength, jvalue& jvOutput);
 	static bool		GetCMSContent(const string& strCMSDataInput, string& strContentOutput);
@@ -52,13 +51,13 @@ public:
 	string	m_strSubjectCN;
 	string	m_strProvData;
 	string	m_strEntitleData;
+	string	m_strApplicationId;
 
 private:
 	void*	m_evpPKey;
 	void*	m_x509Cert;
-	void*	m_otherCerts;
 
-private:
+public:
 	static const char* s_szAppleDevCACert;
 	static const char* s_szAppleRootCACert;
 	static const char* s_szAppleDevCACertG3;

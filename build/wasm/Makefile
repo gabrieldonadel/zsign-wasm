@@ -43,7 +43,7 @@ SRCS += ../../native/common/timer.cpp
 SRCS += ../../native/common/util.cpp
 SRCS += ../../native/common/wasm_compat.cpp
 
-LDFLAGS += -sEXPORTED_FUNCTIONS='["_zsign_version","_zsign_set_log_level","_zsign_sign_macho","_zsign_sign_bundle","_zsign_sign_macho_mem","_zsign_free_buffer","_malloc","_free"]'
+LDFLAGS += -sEXPORTED_FUNCTIONS='["_zsign_version","_zsign_set_log_level","_zsign_sign_macho","_zsign_sign_bundle","_zsign_sign_bundle_multi","_zsign_sign_macho_mem","_zsign_free_buffer","_malloc","_free"]'
 LDFLAGS += -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAPU8","HEAPU32"]'
 
 OBJS = $(SRCS:../../native/%.cpp=$(OBJDIR)/%.o)

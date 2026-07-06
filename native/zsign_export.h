@@ -38,6 +38,26 @@ int zsign_sign_bundle(
 	int weak_inject,
 	int enable_cache);
 
+// Multi-profile bundle signing. `prov_files` is a newline-delimited list of
+// .mobileprovision paths (main app + one per extension/watch bundle); zsign
+// matches each bundle to the profile whose application-identifier suffix equals
+// the bundle's CFBundleIdentifier. Return 0 on success, non-zero on failure.
+int zsign_sign_bundle_multi(
+	const char* input_folder,
+	const char* cert_file,
+	const char* pkey_file,
+	const char* prov_files,
+	const char* password,
+	const char* entitlements_file,
+	const char* bundle_id,
+	const char* bundle_version,
+	const char* display_name,
+	int adhoc,
+	int sha256_only,
+	int force_sign,
+	int weak_inject,
+	int enable_cache);
+
 // Memory interface. Inputs may be NULL/0 when not needed.
 // On success:
 //   *output_data points to a newly allocated buffer

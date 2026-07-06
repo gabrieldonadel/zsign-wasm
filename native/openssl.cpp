@@ -8,118 +8,6 @@
 #include <openssl/pkcs12.h>
 #include <openssl/conf.h>
 
-namespace {
-
-bool IsSameCertificate(X509* lhs, X509* rhs)
-{
-	if (!lhs || !rhs) {
-		return false;
-	}
-	return (0 == X509_cmp(lhs, rhs));
-}
-
-bool IsIssuedBy(X509* cert, X509* issuer)
-{
-	if (!cert || !issuer) {
-		return false;
-	}
-	return (0 == X509_NAME_cmp(X509_get_issuer_name(cert), X509_get_subject_name(issuer)));
-}
-
-bool PushUniqueCertOwned(STACK_OF(X509)* certs, X509* cert)
-{
-	if (!certs || !cert) {
-		return false;
-	}
-
-	for (int i = 0; i < sk_X509_num(certs); i++) {
-		if (IsSameCertificate(sk_X509_value(certs, i), cert)) {
-			return true;
-		}
-	}
-
-	return (sk_X509_push(certs, cert) > 0);
-}
-
-bool PushUniqueCertRef(STACK_OF(X509)* certs, X509* cert)
-{
-	if (!certs || !cert) {
-		return false;
-	}
-
-	for (int i = 0; i < sk_X509_num(certs); i++) {
-		if (IsSameCertificate(sk_X509_value(certs, i), cert)) {
-			return true;
-		}
-	}
-
-	if (1 != X509_up_ref(cert)) {
-		return false;
-	}
-
-	if (sk_X509_push(certs, cert) <= 0) {
-		X509_free(cert);
-		return false;
-	}
-
-	return true;
-}
-
-void FreeCertList(vector<X509*>& certs)
-{
-	for (X509* cert : certs) {
-		if (cert) {
-			X509_free(cert);
-		}
-	}
-	certs.clear();
-}
-
-void ParsePEMCerts(const string& certData, vector<X509*>& certs)
-{
-	BIO* bio = BIO_new_mem_buf(certData.data(), (int)certData.size());
-	if (!bio) {
-		return;
-	}
-
-	while (true) {
-		X509* cert = PEM_read_bio_X509(bio, NULL, 0, NULL);
-		if (!cert) {
-			ERR_clear_error();
-			break;
-		}
-		certs.push_back(cert);
-	}
-
-	BIO_free(bio);
-}
-
-void ParseDERCerts(const string& certData, vector<X509*>& certs)
-{
-	const unsigned char* cur = (const unsigned char*)certData.data();
-	long remain = (long)certData.size();
-	while (remain > 0) {
-		const unsigned char* next = cur;
-		X509* cert = d2i_X509(NULL, &next, remain);
-		if (!cert) {
-			ERR_clear_error();
-			break;
-		}
-
-		long consumed = (long)(next - cur);
-		if (consumed <= 0) {
-			X509_free(cert);
-			break;
-		}
-
-		certs.push_back(cert);
-		cur = next;
-		remain -= consumed;
-	}
-}
-
-}
-
 const char* ZSignAsset::s_szAppleDevCACert = ""
 "-----BEGIN CERTIFICATE-----\n"
 "MIIEIjCCAwqgAwIBAgIIAd68xDltoBAwDQYJKoZIhvcNAQEFBQAwYjELMAkGA1UE\n"
@@ -215,16 +103,13 @@ ZSignAsset::OpenSSLInit::OpenSSLInit()
 
 bool ZSignAsset::CMSError()
 {
-	unsigned long err = 0;
-	char buf[256] = { 0 };
-	while (0 != (err = ERR_get_error())) {
-		ERR_error_string_n(err, buf, sizeof(buf));
-		ZLog::ErrorV(">>> OpenSSL: %s\n", buf);
-	}
+	// openssl-wasm is a no-filesystem build: no ERR_print_errors_fp / BIO_new_fp.
+	// The stdout dump is diagnostic only — just drain the error queue.
+	ERR_clear_error();
 	return false;
 }
 
-void* ZSignAsset::GenerateASN1Type(const string& algorithm, const string& value)
+void* ZSignAsset::GenerateASN1Type(const string& value)
 {
 	long errline = -1;
 	char* genstr = NULL;
@@ -235,7 +120,7 @@ void* ZSignAsset::GenerateASN1Type(const string& algorithm, const string& value)
 		ZLog::Error(">>> NCONF_new failed\n");
 		BIO_free(ldapbio);
 	}
-	string a = "asn1=SEQUENCE:A\n[A]\nC=OBJECT:" + algorithm + "\nB=FORMAT:HEX,OCT:" + value + "\n";
+	string a = "asn1=SEQUENCE:A\n[A]\nC=OBJECT:sha256\nB=FORMAT:HEX,OCT:" + value + "\n";
 	int code = BIO_puts(ldapbio, a.c_str());
 	if (NCONF_load_bio(cnf, ldapbio, &errline) <= 0) {
 		BIO_free(ldapbio);
@@ -263,268 +148,120 @@ bool ZSignAsset::GenerateCMS(void* pscert, void* pspkey, const string& strCDHash
 	X509* scert = (X509*)pscert;
 	EVP_PKEY* spkey = (EVP_PKEY*)pspkey;
 
-	STACK_OF(X509)* otherCerts = sk_X509_new_null();
-	BIO* bother1 = NULL;
-	BIO* bother2 = NULL;
-	BIO* in = NULL;
-	BIO* out = NULL;
-	CMS_ContentInfo* cms = NULL;
-	CMS_SignerInfo* si = NULL;
-	ASN1_OBJECT* obj = NULL;
-	ASN1_OBJECT* obj2 = NULL;
-	X509_ATTRIBUTE* attr = NULL;
-	ASN1_TYPE* type_256 = NULL;
-	ASN1_TYPE* type_256_2 = NULL;
-	BUF_MEM* bptr = NULL;
-	STACK_OF(X509)* inputChain = (STACK_OF(X509)*)m_otherCerts;
-	int nFlags = CMS_PARTIAL | CMS_DETACHED | CMS_NOSMIMECAP | CMS_BINARY | CMS_NO_SIGNING_TIME;
-	string sha256;
-	string sha1;
-	char buf[16] = { 0 };
-	const char* failPoint = "";
-	bool bRet = false;
-
-	if (!otherCerts) {
-		failPoint = "alloc_otherCerts";
-		CMSError();
-		goto cleanup;
-	}
-
-	if (inputChain && sk_X509_num(inputChain) > 0) {
-		ZLog::DebugV(">>> Using provided certificate chain: %d cert(s)\n", sk_X509_num(inputChain));
-		for (int i = 0; i < sk_X509_num(inputChain); i++) {
-			X509* cert = sk_X509_value(inputChain, i);
-			if (!PushUniqueCertRef(otherCerts, cert)) {
-				failPoint = "push_input_chain";
-				CMSError();
-				goto cleanup;
-			}
-		}
+	BIO* bother1;
+	unsigned long issuerHash = X509_issuer_name_hash(scert);
+	if (0x817d2f7a == issuerHash) {
+		bother1 = BIO_new_mem_buf(s_szAppleDevCACert, (int)strlen(s_szAppleDevCACert));
+	} else if (0x9b16b75c == issuerHash) {
+		bother1 = BIO_new_mem_buf(s_szAppleDevCACertG3, (int)strlen(s_szAppleDevCACertG3));
 	} else {
-		unsigned long issuerHash = X509_issuer_name_hash(scert);
-		if (0x817d2f7a == issuerHash) {
-			bother1 = BIO_new_mem_buf(s_szAppleDevCACert, (int)strlen(s_szAppleDevCACert));
-		} else if (0x9b16b75c == issuerHash) {
-			bother1 = BIO_new_mem_buf(s_szAppleDevCACertG3, (int)strlen(s_szAppleDevCACertG3));
-		} else {
-			ZLog::Error(">>> Unknown issuer hash! Please provide full certificate chain via --cert.\n");
-			goto cleanup;
-		}
-		ZLog::DebugV(">>> Using built-in certificate chain for issuer hash: 0x%08lx\n", issuerHash);
-
-		bother2 = BIO_new_mem_buf(s_szAppleRootCACert, (int)strlen(s_szAppleRootCACert));
-		if (!bother1 || !bother2) {
-			failPoint = "load_builtin_chain_bio";
-			CMSError();
-			goto cleanup;
-		}
-
-		X509* ocert1 = PEM_read_bio_X509(bother1, NULL, 0, NULL);
-		X509* ocert2 = PEM_read_bio_X509(bother2, NULL, 0, NULL);
-		if (!ocert1 || !ocert2) {
-			failPoint = "parse_builtin_chain_cert";
-			if (ocert1) {
-				X509_free(ocert1);
-			}
-			if (ocert2) {
-				X509_free(ocert2);
-			}
-			CMSError();
-			goto cleanup;
-		}
-
-		if (!PushUniqueCertOwned(otherCerts, ocert1)) {
-			failPoint = "push_builtin_chain_1";
-			X509_free(ocert1);
-			X509_free(ocert2);
-			CMSError();
-			goto cleanup;
-		}
-		ocert1 = NULL;
-
-		if (!PushUniqueCertOwned(otherCerts, ocert2)) {
-			failPoint = "push_builtin_chain_2";
-			X509_free(ocert2);
-			CMSError();
-			goto cleanup;
-		}
-		ocert2 = NULL;
+		ZLog::Error(">>> Unknown issuer hash!\n");
+		return false;
 	}
 
-	in = BIO_new_mem_buf(strCDHashData.c_str(), (int)strCDHashData.size());
+	BIO* bother2 = BIO_new_mem_buf(s_szAppleRootCACert, (int)strlen(s_szAppleRootCACert));
+	if (!bother1 || !bother2) {
+		return CMSError();
+	}
+
+	X509* ocert1 = PEM_read_bio_X509(bother1, NULL, 0, NULL);
+	X509* ocert2 = PEM_read_bio_X509(bother2, NULL, 0, NULL);
+	if (!ocert1 || !ocert2) {
+		return CMSError();
+	}
+
+	STACK_OF(X509)* otherCerts = sk_X509_new_null();
+	if (!otherCerts) {
+		return CMSError();
+	}
+
+	if (!sk_X509_push(otherCerts, ocert1)) {
+		return CMSError();
+	}
+
+	if (!sk_X509_push(otherCerts, ocert2)) {
+		return CMSError();
+	}
+
+	BIO* in = BIO_new_mem_buf(strCDHashData.c_str(), (int)strCDHashData.size());
 	if (!in) {
-		failPoint = "bio_input";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
-	cms = CMS_sign(NULL, NULL, otherCerts, NULL, nFlags);
+	int nFlags = CMS_PARTIAL | CMS_DETACHED | CMS_NOSMIMECAP | CMS_BINARY;
+	CMS_ContentInfo* cms = CMS_sign(NULL, NULL, otherCerts, NULL, nFlags);
 	if (!cms) {
-		failPoint = "cms_sign";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
-	si = CMS_add1_signer(cms, scert, spkey, EVP_sha256(), nFlags);
+	CMS_SignerInfo* si = CMS_add1_signer(cms, scert, spkey, EVP_sha256(), nFlags);
+	//    CMS_add1_signer(cms, NULL, NULL, EVP_sha1(), nFlags);
 	if (!si) {
-		failPoint = "cms_add_signer";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
-	obj = OBJ_txt2obj("1.2.840.113635.100.9.1", 1);
+	// add plist
+	ASN1_OBJECT* obj = OBJ_txt2obj("1.2.840.113635.100.9.1", 1);
 	if (!obj) {
-		failPoint = "obj_cdhashes_plist";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
-	if (!CMS_signed_add1_attr_by_OBJ(si, obj, 0x4, strCDHashesPlist.c_str(), (int)strCDHashesPlist.size())) {
-		failPoint = "add_attr_cdhashes_plist";
-		CMSError();
-		goto cleanup;
+	int addHashPlist = CMS_signed_add1_attr_by_OBJ(si, obj, 0x4, strCDHashesPlist.c_str(), (int)strCDHashesPlist.size());
+
+	if (!addHashPlist) {
+		return CMSError();
 	}
 
-	for (size_t i = 0; i < strCodeDirectorySlotSHA1.size(); i++) {
-		snprintf(buf, sizeof(buf), "%02x", (uint8_t)strCodeDirectorySlotSHA1[i]);
-		sha1 += buf;
-	}
-	transform(sha1.begin(), sha1.end(), sha1.begin(), ::toupper);
-
+	// add CDHashes
+	static const char hex_upper[] = "0123456789ABCDEF";
+	string sha256;
+	sha256.reserve(strAltnateCodeDirectorySlot256.size() * 2);
 	for (size_t i = 0; i < strAltnateCodeDirectorySlot256.size(); i++) {
-		snprintf(buf, sizeof(buf), "%02x", (uint8_t)strAltnateCodeDirectorySlot256[i]);
-		sha256 += buf;
+		uint8_t c = (uint8_t)strAltnateCodeDirectorySlot256[i];
+		sha256 += hex_upper[c >> 4];
+		sha256 += hex_upper[c & 0x0F];
 	}
-	transform(sha256.begin(), sha256.end(), sha256.begin(), ::toupper);
 
-	obj2 = OBJ_txt2obj("1.2.840.113635.100.9.2", 1);
+	ASN1_OBJECT* obj2 = OBJ_txt2obj("1.2.840.113635.100.9.2", 1);
 	if (!obj2) {
-		failPoint = "obj_cdhashes2";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
-	attr = X509_ATTRIBUTE_new();
-	if (!attr) {
-		failPoint = "attr_new";
-		CMSError();
-		goto cleanup;
-	}
+	X509_ATTRIBUTE* attr = X509_ATTRIBUTE_new();
+	X509_ATTRIBUTE_set1_object(attr, obj2);
 
-	if (!X509_ATTRIBUTE_set1_object(attr, obj2)) {
-		failPoint = "attr_set_object";
-		CMSError();
-		goto cleanup;
-	}
-
-	type_256 = (ASN1_TYPE*)GenerateASN1Type("sha1", sha1);
-	if (!type_256) {
-		failPoint = "asn1_generate";
-		CMSError();
-		goto cleanup;
-	}
-
-	if (!X509_ATTRIBUTE_set1_data(attr, V_ASN1_SEQUENCE, type_256->value.asn1_string->data, type_256->value.asn1_string->length)) {
-		failPoint = "attr_set_data";
-		CMSError();
-		goto cleanup;
-	}
-
-	type_256_2 = (ASN1_TYPE*)GenerateASN1Type("sha256", sha256);
-	if (!type_256_2) {
-		failPoint = "asn1_generate_2";
-		CMSError();
-		goto cleanup;
-	}
-
-	if (!X509_ATTRIBUTE_set1_data(attr, V_ASN1_SEQUENCE, type_256_2->value.asn1_string->data, type_256_2->value.asn1_string->length)) {
-		failPoint = "attr_set_data_2";
-		CMSError();
-		goto cleanup;
-	}
-	ASN1_TYPE_free(type_256_2);
-	type_256_2 = NULL;
-
-	if (!CMS_signed_add1_attr(si, attr)) {
-		failPoint = "add_attr_cdhashes2";
-		CMSError();
-		goto cleanup;
+	ASN1_TYPE* type_256 = (ASN1_TYPE*)GenerateASN1Type(sha256);
+	X509_ATTRIBUTE_set1_data(attr, V_ASN1_SEQUENCE,
+		type_256->value.asn1_string->data, type_256->value.asn1_string->length);
+	int addHashSHA = CMS_signed_add1_attr(si, attr);
+	if (!addHashSHA) {
+		return CMSError();
 	}
 
 	if (!CMS_final(cms, in, NULL, nFlags)) {
-		failPoint = "cms_final";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
-	out = BIO_new(BIO_s_mem());
+	BIO* out = BIO_new(BIO_s_mem());
 	if (!out) {
-		failPoint = "bio_output";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
+	//PEM_write_bio_CMS(out, cms);
 	if (!i2d_CMS_bio(out, cms)) {
-		failPoint = "cms_serialize";
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
+	BUF_MEM* bptr = NULL;
 	BIO_get_mem_ptr(out, &bptr);
 	if (!bptr) {
-		failPoint = "bio_get_mem_ptr";
-		ZLog::Error(">>> CMS output buffer is null.\n");
-		CMSError();
-		goto cleanup;
+		return CMSError();
 	}
 
 	strCMSOutput.clear();
 	strCMSOutput.append(bptr->data, bptr->length);
-	bRet = (!strCMSOutput.empty());
-	if (!bRet) {
-		ZLog::Error(">>> CMS output is empty.\n");
-	} else {
-		ZLog::DebugV(">>> CMS output size: %lu bytes\n", strCMSOutput.size());
-	}
-
-cleanup:
-	if (!bRet && failPoint[0] != '\0') {
-		ZLog::ErrorV(">>> GenerateCMS fail point: %s\n", failPoint);
-	}
-	if (type_256) {
-		ASN1_TYPE_free(type_256);
-	}
-	if (type_256_2) {
-		ASN1_TYPE_free(type_256_2);
-	}
-	if (attr) {
-		X509_ATTRIBUTE_free(attr);
-	}
-	if (obj2) {
-		ASN1_OBJECT_free(obj2);
-	}
-	if (obj) {
-		ASN1_OBJECT_free(obj);
-	}
-	if (cms) {
-		CMS_ContentInfo_free(cms);
-	}
-	if (in) {
-		BIO_free(in);
-	}
-	if (out) {
-		BIO_free(out);
-	}
-	if (bother1) {
-		BIO_free(bother1);
-	}
-	if (bother2) {
-		BIO_free(bother2);
-	}
-	if (otherCerts) {
-		sk_X509_pop_free(otherCerts, X509_free);
-	}
-	return bRet;
+	ASN1_TYPE_free(type_256);
+	return (!strCMSOutput.empty());
 }
 
 bool ZSignAsset::GetCMSContent(const string& strCMSDataInput, string& strContentOutput)
@@ -742,11 +479,13 @@ bool ZSignAsset::GetCMSInfo(uint8_t * pCMSData, uint32_t uCMSLength, jvalue & jv
 			} else if (0 == strcmp("1.2.840.113549.1.9.4", txtobj)) { //V_ASN1_OCTET_STRING
 				const ASN1_TYPE* av = X509_ATTRIBUTE_get0_type(attr, 0);
 				if (NULL != av) {
+					static const char hex_lower[] = "0123456789abcdef";
 					string strSHASum;
-					char buf[16] = { 0 };
+					strSHASum.reserve(av->value.octet_string->length * 2);
 					for (int m = 0; m < av->value.octet_string->length; m++) {
-						snprintf(buf, sizeof(buf), "%02x", (uint8_t)av->value.octet_string->data[m]);
-						strSHASum += buf;
+						uint8_t c = (uint8_t)av->value.octet_string->data[m];
+						strSHASum += hex_lower[c >> 4];
+						strSHASum += hex_lower[c & 0x0F];
 					}
 					jvOutput["attrs"]["MessageDigest"]["obj"] = txtobj;
 					jvOutput["attrs"]["MessageDigest"]["data"] = strSHASum;
@@ -824,26 +563,9 @@ ZSignAsset::ZSignAsset()
 {
 	m_evpPKey = NULL;
 	m_x509Cert = NULL;
-	m_otherCerts = NULL;
 	m_bAdhoc = false;
 	m_bSingleBinary = false;
 	m_bSHA256Only = false;
-}
-
-ZSignAsset::~ZSignAsset()
-{
-	if (m_evpPKey) {
-		EVP_PKEY_free((EVP_PKEY*)m_evpPKey);
-		m_evpPKey = NULL;
-	}
-	if (m_x509Cert) {
-		X509_free((X509*)m_x509Cert);
-		m_x509Cert = NULL;
-	}
-	if (m_otherCerts) {
-		sk_X509_pop_free((STACK_OF(X509)*)m_otherCerts, X509_free);
-		m_otherCerts = NULL;
-	}
 }
 
 bool ZSignAsset::Init(
@@ -856,24 +578,6 @@ bool ZSignAsset::Init(
 	bool bSHA256Only,
 	bool bSingleBinary)
 {
-	if (m_evpPKey) {
-		EVP_PKEY_free((EVP_PKEY*)m_evpPKey);
-		m_evpPKey = NULL;
-	}
-	if (m_x509Cert) {
-		X509_free((X509*)m_x509Cert);
-		m_x509Cert = NULL;
-	}
-	if (m_otherCerts) {
-		sk_X509_pop_free((STACK_OF(X509)*)m_otherCerts, X509_free);
-		m_otherCerts = NULL;
-	}
-
-	m_strTeamId.clear();
-	m_strSubjectCN.clear();
-	m_strProvData.clear();
-	m_strEntitleData.clear();
-
 	m_bAdhoc = bAdhoc;
 	m_bSHA256Only = bSHA256Only;
 	m_bSingleBinary = bSingleBinary;
@@ -899,6 +603,7 @@ bool ZSignAsset::Init(
 	string strProvContent;
 	if (GetCMSContent(m_strProvData, strProvContent)) {
 		if (jvProv.read_plist(strProvContent)) {
+			m_strApplicationId = jvProv["Entitlements"]["application-identifier"].as_cstr();
 			m_strTeamId = jvProv["TeamIdentifier"][0].as_cstr();
 			if (m_strEntitleData.empty()) {
 				jvProv["Entitlements"].style_write_plist(m_strEntitleData);
@@ -913,22 +618,7 @@ bool ZSignAsset::Init(
 
 	X509* x509Cert = NULL;
 	EVP_PKEY* evpPKey = NULL;
-	STACK_OF(X509)* p12Certs = NULL;
-	STACK_OF(X509)* chainCerts = sk_X509_new_null();
-	vector<X509*> certsFromFile;
-	if (!chainCerts) {
-		CMSError();
-		return false;
-	}
-
-	string strPKeyData;
-	BIO* bioPKey = NULL;
-	if (!strPKeyFile.empty()) {
-		ZFile::ReadFile(strPKeyFile.c_str(), strPKeyData);
-	}
-	if (!strPKeyData.empty()) {
-		bioPKey = BIO_new_mem_buf(strPKeyData.data(), (int)strPKeyData.size());
-	}
+	BIO* bioPKey = BIO_new_file(strPKeyFile.c_str(), "rb");
 	if (NULL != bioPKey) {
 		evpPKey = PEM_read_bio_PrivateKey(bioPKey, NULL, NULL, (void*)strPassword.c_str());
 		if (NULL == evpPKey) {
@@ -939,7 +629,7 @@ bool ZSignAsset::Init(
 				OSSL_PROVIDER_load(NULL, "legacy");
 				PKCS12* p12 = d2i_PKCS12_bio(bioPKey, NULL);
 				if (NULL != p12) {
-					if (0 == PKCS12_parse(p12, strPassword.c_str(), &evpPKey, &x509Cert, &p12Certs)) {
+					if (0 == PKCS12_parse(p12, strPassword.c_str(), &evpPKey, &x509Cert, NULL)) {
 						CMSError();
 					}
 					PKCS12_free(p12);
@@ -953,23 +643,18 @@ bool ZSignAsset::Init(
 
 	if (NULL == evpPKey) {
 		ZLog::Error(">>> Can't load p12 or private key file. Please input the correct file and password!\n");
-		if (p12Certs) {
-			sk_X509_pop_free(p12Certs, X509_free);
-		}
-		if (chainCerts) {
-			sk_X509_pop_free(chainCerts, X509_free);
-		}
 		return false;
 	}
 
-	if (!strCertFile.empty()) {
-		string strCertData;
-		ZFile::ReadFile(strCertFile.c_str(), strCertData);
-		if (!strCertData.empty()) {
-			ParsePEMCerts(strCertData, certsFromFile);
-			if (certsFromFile.empty()) {
-				ParseDERCerts(strCertData, certsFromFile);
+	if (NULL == x509Cert && !strCertFile.empty()) {
+		BIO* bioCert = BIO_new_file(strCertFile.c_str(), "r");
+		if (NULL != bioCert) {
+			x509Cert = PEM_read_bio_X509(bioCert, NULL, 0, NULL);
+			if (NULL == x509Cert) {
+				BIO_reset(bioCert);
+				x509Cert = d2i_X509_bio(bioCert, NULL);
 			}
+			BIO_free(bioCert);
 		}
 	}
 
@@ -977,17 +662,6 @@ bool ZSignAsset::Init(
 		if (!X509_check_private_key(x509Cert, evpPKey)) {
 			X509_free(x509Cert);
 			x509Cert = NULL;
-		}
-	}
-
-	if (NULL == x509Cert) {
-		for (size_t i = 0; i < certsFromFile.size(); i++) {
-			X509* cert = certsFromFile[i];
-			if (cert && X509_check_private_key(cert, evpPKey)) {
-				x509Cert = cert;
-				certsFromFile[i] = NULL;
-				break;
-			}
 		}
 	}
 
@@ -1011,119 +685,16 @@ bool ZSignAsset::Init(
 
 	if (NULL == x509Cert) {
 		ZLog::Error(">>> Can't find paired certificate and private key!\n");
-		if (p12Certs) {
-			sk_X509_pop_free(p12Certs, X509_free);
-		}
-		FreeCertList(certsFromFile);
-		sk_X509_pop_free(chainCerts, X509_free);
-		EVP_PKEY_free(evpPKey);
 		return false;
-	}
-
-	if (p12Certs) {
-		for (int i = 0; i < sk_X509_num(p12Certs); i++) {
-			X509* cert = sk_X509_value(p12Certs, i);
-			if (!cert || IsSameCertificate(cert, x509Cert)) {
-				continue;
-			}
-			if (!PushUniqueCertRef(chainCerts, cert)) {
-				CMSError();
-				sk_X509_pop_free(p12Certs, X509_free);
-				FreeCertList(certsFromFile);
-				sk_X509_pop_free(chainCerts, X509_free);
-				X509_free(x509Cert);
-				EVP_PKEY_free(evpPKey);
-				return false;
-			}
-		}
-		sk_X509_pop_free(p12Certs, X509_free);
-		p12Certs = NULL;
-	}
-
-	for (size_t i = 0; i < certsFromFile.size(); i++) {
-		X509* cert = certsFromFile[i];
-		if (!cert) {
-			continue;
-		}
-		if (IsSameCertificate(cert, x509Cert)) {
-			X509_free(cert);
-			certsFromFile[i] = NULL;
-			continue;
-		}
-		if (!PushUniqueCertOwned(chainCerts, cert)) {
-			CMSError();
-			FreeCertList(certsFromFile);
-			sk_X509_pop_free(chainCerts, X509_free);
-			X509_free(x509Cert);
-			EVP_PKEY_free(evpPKey);
-			return false;
-		}
-		certsFromFile[i] = NULL;
-	}
-	FreeCertList(certsFromFile);
-
-	if (sk_X509_num(chainCerts) > 0) {
-		STACK_OF(X509)* matchedChain = sk_X509_new_null();
-		if (!matchedChain) {
-			CMSError();
-			sk_X509_pop_free(chainCerts, X509_free);
-			X509_free(x509Cert);
-			EVP_PKEY_free(evpPKey);
-			return false;
-		}
-
-		X509* cursor = x509Cert;
-		while (cursor) {
-			X509* next = NULL;
-			for (int i = 0; i < sk_X509_num(chainCerts); i++) {
-				X509* cert = sk_X509_value(chainCerts, i);
-				if (!cert || IsSameCertificate(cert, cursor)) {
-					continue;
-				}
-				if (IsIssuedBy(cursor, cert)) {
-					next = cert;
-					break;
-				}
-			}
-
-			if (!next) {
-				break;
-			}
-
-			if (!PushUniqueCertRef(matchedChain, next)) {
-				CMSError();
-				sk_X509_pop_free(matchedChain, X509_free);
-				sk_X509_pop_free(chainCerts, X509_free);
-				X509_free(x509Cert);
-				EVP_PKEY_free(evpPKey);
-				return false;
-			}
-
-			if (0 == X509_NAME_cmp(X509_get_subject_name(next), X509_get_issuer_name(next))) {
-				break;
-			}
-			cursor = next;
-		}
-
-		sk_X509_pop_free(chainCerts, X509_free);
-		chainCerts = matchedChain;
 	}
 
 	if (!GetCertSubjectCN(x509Cert, m_strSubjectCN)) {
 		ZLog::Error(">>> Can't find paired certificate subject common name!\n");
-		sk_X509_pop_free(chainCerts, X509_free);
-		X509_free(x509Cert);
-		EVP_PKEY_free(evpPKey);
 		return false;
 	}
 
 	m_evpPKey = evpPKey;
 	m_x509Cert = x509Cert;
-	if (sk_X509_num(chainCerts) > 0) {
-		m_otherCerts = chainCerts;
-	} else {
-		sk_X509_pop_free(chainCerts, X509_free);
-	}
 	return true;
 }
 

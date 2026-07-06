@@ -6,18 +6,6 @@
 
 map<void*, void*> ZFile::s_mapFiles;
 
-#ifndef _WIN32
-struct ZFileMappedInfo
-{
-	string path;
-	size_t offset;
-	size_t size;
-	bool ro;
-};
-
-static map<void*, ZFileMappedInfo> s_mapFilesNoMmap;
-#endif
-
 bool ZFile::IsRegularFile(const char* path)
 {
 	struct stat st = { 0 };
@@ -54,39 +42,29 @@ void* ZFile::MapFile(const char* path, size_t offset, size_t size, size_t* psize
 
 #else
 
-	FILE* fp = NULL;
-	_fopen64(fp, path, ro ? "rb" : "rb+");
-	if (NULL == fp && !ro) {
-		_fopen64(fp, path, "wb+");
+	int fd = open(path, ro ? O_RDONLY : O_RDWR);
+	if (fd <= 0) {
+		if(chmod(path, 0755) == 0) {
+			fd = open(path, ro ? O_RDONLY : O_RDWR);
+		}
 	}
-
-	if (NULL != fp) {
-		_fseeki64(fp, 0, SEEK_END);
-		int64_t fileSize = _ftelli64(fp);
-		fileSize = fileSize > 0 ? fileSize : 0;
-
+	
+	if (fd > 0) {
 		if (size <= 0) {
-			size = ((int64_t)offset < fileSize) ? (size_t)(fileSize - (int64_t)offset) : 0;
+			struct stat st = { 0 };
+			fstat(fd, &st);
+			size = st.st_size;
 		}
 
 		if (NULL != psize) {
 			*psize = size;
 		}
 
-		if (size > 0) {
-			uint8_t* p = (uint8_t*)malloc(size);
-			if (NULL != p) {
-				memset(p, 0, size);
-				if ((int64_t)offset < fileSize) {
-					size_t toRead = min(size, (size_t)(fileSize - (int64_t)offset));
-					_fseeki64(fp, (int64_t)offset, SEEK_SET);
-					fread(p, 1, toRead, fp);
-				}
-				base = p;
-				s_mapFilesNoMmap[base] = { path, offset, size, ro };
-			}
+		base = mmap(NULL, size, ro ? PROT_READ : PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
+		if (MAP_FAILED == base) {
+			base = NULL;
 		}
-		fclose(fp);
+		close(fd);
 	}
 
 #endif
@@ -106,45 +84,7 @@ bool ZFile::UnmapFile(void* base, size_t size)
 	}
 	return false;
 #else
-	auto it = s_mapFilesNoMmap.find(base);
-	if (it == s_mapFilesNoMmap.end()) {
-		return false;
-	}
-
-	ZFileMappedInfo info = it->second;
-	bool bRet = true;
-
-	if (!info.ro && info.size > 0) {
-		FILE* fp = NULL;
-		_fopen64(fp, info.path.c_str(), "rb+");
-		if (NULL == fp) {
-			_fopen64(fp, info.path.c_str(), "wb+");
-		}
-
-		if (NULL == fp) {
-			bRet = false;
-		} else {
-			_fseeki64(fp, (int64_t)info.offset, SEEK_SET);
-			size_t written = 0;
-			while (written < info.size) {
-				size_t ret = fwrite((uint8_t*)base + written, 1, info.size - written, fp);
-				if (ret <= 0) {
-					bRet = false;
-					break;
-				}
-				written += ret;
-			}
-			if (written != info.size) {
-				bRet = false;
-			}
-			fflush(fp);
-			fclose(fp);
-		}
-	}
-
-	free(base);
-	s_mapFilesNoMmap.erase(it);
-	return bRet;
+	return (0 == munmap(base, size));
 #endif
 }
 
@@ -405,7 +345,7 @@ bool ZFile::CopyFile(const char* szSrcFile, const char* szDestFile)
 	if (-1 != src_id) {
 		dest_fd = open(szDestFile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (-1 != dest_fd) {
-			char buffer[4096];
+			char buffer[65536];
 			ssize_t bytes_read = read(src_id, buffer, sizeof(buffer));
 			while (bytes_read > 0) {
 				sum_readed += bytes_read;

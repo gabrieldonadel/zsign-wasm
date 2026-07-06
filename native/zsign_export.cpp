@@ -219,6 +219,7 @@ ZSIGN_EXPORT int zsign_sign_bundle(
 
 	ZBundle bundle;
 	vector<string> arrDylibFiles;
+	vector<string> arrRemoveDylibNames;
 	bool bRet = bundle.SignFolder(
 		&zsa,
 		inputFolder,
@@ -226,10 +227,111 @@ ZSIGN_EXPORT int zsign_sign_bundle(
 		bundleVersion,
 		displayName,
 		arrDylibFiles,
+		arrRemoveDylibNames,
 		bForceSign,
 		bWeakInject,
 		bEnableCache);
 	return bRet ? 0 : -204;
+}
+
+// Multi-profile bundle signing. `prov_files` is a newline-delimited list of
+// .mobileprovision paths (main app + one per extension/watch bundle). zsign
+// matches each bundle to the profile whose application-identifier ends with the
+// bundle's CFBundleIdentifier and writes that profile as the bundle's
+// embedded.mobileprovision — the multi-`-m` behaviour of the zsign CLI.
+ZSIGN_EXPORT int zsign_sign_bundle_multi(
+	const char* input_folder,
+	const char* cert_file,
+	const char* pkey_file,
+	const char* prov_files,
+	const char* password,
+	const char* entitlements_file,
+	const char* bundle_id,
+	const char* bundle_version,
+	const char* display_name,
+	int adhoc,
+	int sha256_only,
+	int force_sign,
+	int weak_inject,
+	int enable_cache)
+{
+	string inputFolder = SafePath(input_folder);
+	if (inputFolder.empty() || !ZFile::IsFolder(inputFolder.c_str())) {
+		ZLog::ErrorV(">>> Invalid bundle folder path! %s\n", inputFolder.c_str());
+		return -301;
+	}
+
+	string certFile = SafePath(cert_file);
+	string pkeyFile = SafePath(pkey_file);
+	string entitlementsFile = SafePath(entitlements_file);
+	string passwd = SafeString(password);
+	string bundleId = SafeString(bundle_id);
+	string bundleVersion = SafeString(bundle_version);
+	string displayName = SafeString(display_name);
+
+	bool bAdhoc = (adhoc != 0);
+	bool bSHA256Only = (sha256_only != 0);
+	bool bForceSign = (force_sign != 0);
+	bool bWeakInject = (weak_inject != 0);
+	bool bEnableCache = (enable_cache != 0);
+
+	// Split the newline-delimited provisioning-profile list into paths.
+	vector<string> provPaths;
+	{
+		string joined = SafeString(prov_files);
+		size_t start = 0;
+		while (start <= joined.size()) {
+			size_t nl = joined.find('\n', start);
+			string one = (nl == string::npos) ? joined.substr(start) : joined.substr(start, nl - start);
+			if (!one.empty()) {
+				string full = SafePath(one.c_str());
+				if (!full.empty()) {
+					provPaths.push_back(full);
+				}
+			}
+			if (nl == string::npos) {
+				break;
+			}
+			start = nl + 1;
+		}
+	}
+
+	if (!bAdhoc && (pkeyFile.empty() || provPaths.empty())) {
+		ZLog::Error(">>> Non ad-hoc mode needs private key and at least one provisioning profile.\n");
+		return -302;
+	}
+
+	if (ZLog::IsDebug()) {
+		ZFile::CreateFolder("./.zsign_debug");
+	}
+
+	list<ZSignAsset> zsaList;
+	for (const string& provPath : provPaths) {
+		zsaList.push_back(ZSignAsset());
+		if (!zsaList.back().Init(certFile, pkeyFile, provPath, entitlementsFile, passwd, bAdhoc, bSHA256Only, false)) {
+			ZLog::ErrorV(">>> Failed to init provisioning profile: %s\n", provPath.c_str());
+			zsaList.pop_back();
+		}
+	}
+	if (zsaList.empty()) {
+		return -303;
+	}
+
+	ZBundle bundle;
+	vector<string> arrDylibFiles;
+	vector<string> arrRemoveDylibNames;
+	bool bRet = bundle.SignFolder(
+		&zsaList,
+		inputFolder,
+		bundleId,
+		bundleVersion,
+		displayName,
+		arrDylibFiles,
+		arrRemoveDylibNames,
+		bForceSign,
+		bWeakInject,
+		bEnableCache);
+	return bRet ? 0 : -304;
 }
 
 ZSIGN_EXPORT int zsign_sign_macho_mem(

@@ -35,7 +35,15 @@ class ZsignWasmClient {
       'string', 'string', 'string', 'string', 'string', 'string', 'string', 'string', 'string',
       'number', 'number', 'number', 'number', 'number'
     ]);
+    this._cwrapSignBundleMulti = this.mod.cwrap('zsign_sign_bundle_multi', 'number', [
+      'string', 'string', 'string', 'string', 'string', 'string', 'string', 'string', 'string',
+      'number', 'number', 'number', 'number', 'number'
+    ]);
     this._retCodeMessage = {
+      '-304': 'multi-profile bundle signing failed',
+      '-303': 'no provisioning profiles could be initialized',
+      '-302': 'non ad-hoc mode requires key and at least one provisioning profile',
+      '-301': 'invalid bundle folder path',
       '-204': 'bundle signing failed',
       '-203': 'failed to initialize signing assets',
       '-202': 'non ad-hoc mode requires key and provisioning',
@@ -130,6 +138,59 @@ class ZsignWasmClient {
     if (ret !== 0) {
       const reason = this._retCodeMessage[String(ret)] || 'unknown error';
       throw new Error(`zsign_sign_bundle failed: ${ret} (${reason})`);
+    }
+
+    return 0;
+  }
+
+  // Multi-profile signing: options.provFiles is an array of .mobileprovision
+  // paths (main app + one per extension/watch bundle). zsign matches each bundle
+  // to the profile whose application-identifier suffix equals its bundle id.
+  signBundleMulti(inputFolder, options = {}) {
+    if (!inputFolder || typeof inputFolder !== 'string') {
+      throw new TypeError('inputFolder must be a non-empty string.');
+    }
+
+    const provFiles = Array.isArray(options.provFiles)
+      ? options.provFiles.filter((p) => typeof p === 'string' && p.length > 0)
+      : [];
+    if (provFiles.length === 0) {
+      throw new TypeError('signBundleMulti requires options.provFiles (a non-empty array of paths).');
+    }
+
+    const certFile = typeof options.certFile === 'string' ? options.certFile : '';
+    const pkeyFile = typeof options.pkeyFile === 'string' ? options.pkeyFile : '';
+    const password = typeof options.password === 'string' ? options.password : '';
+    const entitlementsFile = typeof options.entitlementsFile === 'string' ? options.entitlementsFile : '';
+    const bundleId = typeof options.bundleId === 'string' ? options.bundleId : '';
+    const bundleVersion = typeof options.bundleVersion === 'string' ? options.bundleVersion : '';
+    const displayName = typeof options.displayName === 'string' ? options.displayName : '';
+    const adhoc = !!options.adhoc;
+    const sha256Only = !!options.sha256Only;
+    const forceSign = options.forceSign !== undefined ? !!options.forceSign : true;
+    const weakInject = !!options.weakInject;
+    const enableCache = !!options.enableCache;
+
+    const ret = this._cwrapSignBundleMulti(
+      inputFolder,
+      certFile,
+      pkeyFile,
+      provFiles.join('\n'),
+      password,
+      entitlementsFile,
+      bundleId,
+      bundleVersion,
+      displayName,
+      adhoc ? 1 : 0,
+      sha256Only ? 1 : 0,
+      forceSign ? 1 : 0,
+      weakInject ? 1 : 0,
+      enableCache ? 1 : 0
+    );
+
+    if (ret !== 0) {
+      const reason = this._retCodeMessage[String(ret)] || 'unknown error';
+      throw new Error(`zsign_sign_bundle_multi failed: ${ret} (${reason})`);
     }
 
     return 0;

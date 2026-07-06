@@ -30,8 +30,8 @@ var createZsignModule = (() => {
   // Note: We use a typeof check here instead of optional chaining using
   // globalThis because older browsers might not have globalThis defined.
   var currentNodeVersion = typeof process !== 'undefined' && process.versions?.node ? humanReadableVersionToPacked(process.versions.node) : TARGET_NOT_SUPPORTED;
-  if (currentNodeVersion < 160000) {
-    throw new Error(`This emscripten-generated code requires node v${ packedVersionToHumanReadable(160000) } (detected v${packedVersionToHumanReadable(currentNodeVersion)})`);
+  if (currentNodeVersion < 180300) {
+    throw new Error(`This emscripten-generated code requires node v${ packedVersionToHumanReadable(180300) } (detected v${packedVersionToHumanReadable(currentNodeVersion)})`);
   }
 
   var userAgent = typeof navigator !== 'undefined' && navigator.userAgent;
@@ -86,7 +86,7 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
 // refer to Module (if they choose; they can also define Module)
 
 
-var arguments_ = [];
+var programArgs = [];
 var thisProgram = './this.program';
 var quit_ = (status, toThrow) => {
   throw toThrow;
@@ -142,7 +142,7 @@ readAsync = async (filename, binary = true) => {
     thisProgram = process.argv[1].replace(/\\/g, '/');
   }
 
-  arguments_ = process.argv.slice(2);
+  programArgs = process.argv.slice(2);
 
   quit_ = (status, toThrow) => {
     process.exitCode = status;
@@ -210,7 +210,7 @@ var NODEFS = 'NODEFS is no longer included by default; build with -lnodefs.js';
 // perform assertions in shell.js after we set up out() and err(), as otherwise
 // if an assertion fails it cannot print the message
 
-assert(!ENVIRONMENT_IS_SHELL, 'shell environment detected but not enabled at build time.  Add `shell` to `-sENVIRONMENT` to enable.');
+assert(!ENVIRONMENT_IS_SHELL, 'shell environment detected but not enabled at build time (add `shell` to `-sENVIRONMENT` to enable)');
 
 // end include: shell.js
 
@@ -469,7 +469,6 @@ function postRun() {
 
 /**
  * @param {string|number=} what
- * @noreturn
  */
 function abort(what) {
   Module['onAbort']?.(what);
@@ -1318,8 +1317,17 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   };
   
   
+  var zeroMemory = (ptr, size) => HEAPU8.fill(0, ptr, ptr + size);
+  
+  var alignMemory = (size, alignment) => {
+      assert(alignment, 'alignment argument is required');
+      return Math.ceil(size / alignment) * alignment;
+    };
   var mmapAlloc = (size) => {
-      abort('internal error: mmapAlloc called but `emscripten_builtin_memalign` native symbol not exported');
+      size = alignMemory(size, 65536);
+      var ptr = _emscripten_builtin_memalign(65536, size);
+      if (ptr) zeroMemory(ptr, size);
+      return ptr;
     };
   var MEMFS = {
   ops_table:null,
@@ -2014,7 +2022,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
           path = FS.cwd() + '/' + path;
         }
   
-        // limit max consecutive symlinks to 40 (SYMLOOP_MAX).
+        // limit max consecutive symlinks to SYMLOOP_MAX.
         linkloop: for (var nlinks = 0; nlinks < 40; nlinks++) {
           // split the absolute path
           var parts = path.split('/').filter((p) => !!p);
@@ -2306,7 +2314,14 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
         var arg = setattr ? stream : node;
         setattr ??= node.node_ops.setattr;
         FS.checkOpExists(setattr, 63)
-        setattr(arg, attr);
+        try {
+          setattr(arg, attr);
+        } catch (e) {
+          if (e instanceof RangeError) {
+            throw new FS.ErrnoError(22);
+          }
+          throw e;
+        }
       },
   chrdev_stream_ops:{
   open(stream) {
@@ -3050,8 +3065,8 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
         return stream.stream_ops.ioctl(stream, cmd, arg);
       },
   readFile(path, opts = {}) {
-        opts.flags = opts.flags || 0;
-        opts.encoding = opts.encoding || 'binary';
+        opts.flags = opts.flags ?? 0;
+        opts.encoding = opts.encoding ?? 'binary';
         if (opts.encoding !== 'utf8' && opts.encoding !== 'binary') {
           abort(`Invalid encoding type "${opts.encoding}"`);
         }
@@ -3067,7 +3082,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
         return buf;
       },
   writeFile(path, data, opts = {}) {
-        opts.flags = opts.flags || 577;
+        opts.flags = opts.flags ?? 577;
         var stream = FS.open(path, opts.flags, opts.mode);
         data = FS_fileDataToTypedArray(data);
         FS.write(stream, data, 0, data.byteLength, undefined, opts.canOwn);
@@ -3404,8 +3419,8 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   
             // Function to get a range from the remote URL.
             var doXHR = (from, to) => {
-              if (from > to) abort("invalid range (" + from + ", " + to + ") or no bytes requested!");
-              if (to > datalength-1) abort("only " + datalength + " bytes available! programmer error!");
+              if (from > to) abort(`invalid range (${from}, ${to}) or no bytes requested!`);
+              if (to > datalength-1) abort(`only ${datalength} bytes available! programmer error!`);
   
               // TODO: Use mozResponseArrayBuffer, responseStream, etc. if available.
               var xhr = new XMLHttpRequest();
@@ -3423,7 +3438,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
               if (xhr.response !== undefined) {
                 return new Uint8Array(/** @type{Array<number>} */(xhr.response || []));
               }
-              return intArrayFromString(xhr.responseText || '', true);
+              return intArrayFromString(xhr.responseText ?? '', true);
             };
             var lazyArray = this;
             lazyArray.setDataGetter((chunkNum) => {
@@ -3533,6 +3548,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   };
   
   var SYSCALLS = {
+  currentUmask:18,
   calculateAt(dirfd, path, allowEmpty) {
         if (PATH.isAbs(path)) {
           return path;
@@ -3608,6 +3624,19 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
         return ret;
       },
   };
+  function ___syscall_chmod(path, mode) {
+  try {
+  
+      path = SYSCALLS.getStr(path);
+      FS.chmod(path, mode);
+      return 0;
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  }
+  
+
   function ___syscall_faccessat(dirfd, path, amode, flags) {
   try {
   
@@ -3636,6 +3665,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   var syscallGetVarargI = () => {
       assert(SYSCALLS.varargs != undefined);
@@ -3672,7 +3702,8 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
           return stream.flags;
         case 4: {
           var arg = syscallGetVarargI();
-          stream.flags |= arg;
+          var mask = 289792;
+          stream.flags = (stream.flags & ~mask) | (arg & mask);
           return 0;
         }
         case 12: {
@@ -3696,6 +3727,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_fstat64(fd, buf) {
   try {
@@ -3706,10 +3738,11 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   
   var stringToUTF8 = (str, outPtr, maxBytesToWrite) => {
-      assert(typeof maxBytesToWrite == 'number', 'stringToUTF8(str, outPtr, maxBytesToWrite) is missing the third parameter that specifies the length of the output buffer!');
+      assert(typeof maxBytesToWrite == 'number', 'stringToUTF8 requires a third parameter that specifies the length of the output buffer');
       return stringToUTF8Array(str, HEAPU8, outPtr, maxBytesToWrite);
     };
   function ___syscall_getcwd(buf, size) {
@@ -3726,6 +3759,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   
   function ___syscall_getdents64(fd, dirp, count) {
@@ -3786,6 +3820,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   
   function ___syscall_ioctl(fd, op, varargs) {
@@ -3883,6 +3918,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_lstat64(path, buf) {
   try {
@@ -3894,12 +3930,14 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_mkdirat(dirfd, path, mode) {
   try {
   
       path = SYSCALLS.getStr(path);
       path = SYSCALLS.calculateAt(dirfd, path);
+      mode &= ~SYSCALLS.currentUmask;
       FS.mkdir(path, mode, 0);
       return 0;
     } catch (e) {
@@ -3907,6 +3945,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_newfstatat(dirfd, path, buf, flags) {
   try {
@@ -3923,6 +3962,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   
   function ___syscall_openat(dirfd, path, flags, varargs) {
@@ -3932,12 +3972,16 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       path = SYSCALLS.getStr(path);
       path = SYSCALLS.calculateAt(dirfd, path);
       var mode = varargs ? syscallGetVarargI() : 0;
+      if (flags & 64) {
+        mode &= ~SYSCALLS.currentUmask;
+      }
       return FS.open(path, flags, mode).fd;
     } catch (e) {
     if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
   }
   }
+  
 
   
   
@@ -3961,6 +4005,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_renameat(olddirfd, oldpath, newdirfd, newpath) {
   try {
@@ -3976,6 +4021,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_rmdir(path) {
   try {
@@ -3988,6 +4034,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_stat64(path, buf) {
   try {
@@ -3999,6 +4046,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   function ___syscall_unlinkat(dirfd, path, flags) {
   try {
@@ -4018,6 +4066,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return -e.errno;
   }
   }
+  
 
   var __abort_js = () =>
       abort('native code called abort()');
@@ -4076,6 +4125,9 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
                           HEAP32[(((tmPtr)+(4))>>2)],
                           HEAP32[((tmPtr)>>2)],
                           0);
+      if (isNaN(date.getTime())) {
+        return -1;
+      }
   
       // There's an ambiguous hour when the time goes back; the tm_isdst field is
       // used to disambiguate it.  Date() basically guesses, so we fix it up if it
@@ -4107,15 +4159,56 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       HEAP32[(((tmPtr)+(16))>>2)] = date.getMonth();
       HEAP32[(((tmPtr)+(20))>>2)] = date.getYear();
   
-      var timeMs = date.getTime();
-      if (isNaN(timeMs)) {
-        return -1;
-      }
-      // Return time in microseconds
-      return timeMs / 1000;
+      // Return time in seconds
+      return date.getTime() / 1000;
      })();
   return BigInt(ret);
   };
+
+  
+  
+  
+  
+  
+  function __mmap_js(len, prot, flags, fd, offset, allocated, addr) {
+    offset = bigintToI53Checked(offset);
+  
+  
+  try {
+  
+      // musl's mmap doesn't allow values over a certain limit
+      // see OFF_MASK in mmap.c.
+      assert(!isNaN(offset));
+      var stream = SYSCALLS.getStreamFromFD(fd);
+      var res = FS.mmap(stream, len, offset, prot, flags);
+      var ptr = res.ptr;
+      HEAP32[((allocated)>>2)] = res.allocated;
+      HEAPU32[((addr)>>2)] = ptr;
+      return 0;
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  ;
+  }
+
+  
+  function __munmap_js(addr, len, prot, flags, fd, offset) {
+    offset = bigintToI53Checked(offset);
+  
+  
+  try {
+  
+      var stream = SYSCALLS.getStreamFromFD(fd);
+      if (prot & 2) {
+        SYSCALLS.doMsync(addr, stream, len, flags, offset);
+      }
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  ;
+  }
 
   
   var __tzset_js = (timezone, daylight, std_name, dst_name) => {
@@ -4210,10 +4303,6 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       // casing all heap size related code to treat 0 specially.
       2147483648;
   
-  var alignMemory = (size, alignment) => {
-      assert(alignment, "alignment argument is required");
-      return Math.ceil(size / alignment) * alignment;
-    };
   
   var growMemory = (size) => {
       var oldHeapSize = wasmMemory.buffer.byteLength;
@@ -4285,11 +4374,10 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   var ENV = {
   };
   
-  var getExecutableName = () => thisProgram || './this.program';
+  var getExecutableName = () => thisProgram;
   var getEnvStrings = () => {
       if (!getEnvStrings.strings) {
         // Default values.
-        // Browser language detection #8751
         var lang = (globalThis.navigator?.language ?? 'C').replace('-', '_') + '.UTF-8';
         var env = {
           'USER': 'web_user',
@@ -4352,6 +4440,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return e.errno;
   }
   }
+  
 
   /** @param {number=} offset */
   var doReadv = (stream, iov, iovcnt, offset) => {
@@ -4383,6 +4472,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return e.errno;
   }
   }
+  
 
   
   function _fd_seek(fd, offset, whence, newOffset) {
@@ -4391,7 +4481,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   
   try {
   
-      if (isNaN(offset)) return 61;
+      if (isNaN(offset)) return 22;
       var stream = SYSCALLS.getStreamFromFD(fd);
       FS.llseek(stream, offset, whence);
       HEAP64[((newOffset)>>3)] = BigInt(stream.position);
@@ -4437,6 +4527,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
     return e.errno;
   }
   }
+  
 
   var _random_get = (buffer, size) => randomFill(HEAPU8.subarray(buffer, buffer + size));
 
@@ -4500,7 +4591,7 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       var func = getCFunc(ident);
       var cArgs = [];
       var stack = 0;
-      assert(returnType !== 'array', 'Return type should not be "array".');
+      assert(returnType !== 'array', 'return type should not be "array"');
       if (args) {
         for (var i = 0; i < args.length; i++) {
           var converter = toC[argTypes[i]];
@@ -4570,7 +4661,7 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 
   checkIncomingModuleAPI();
 
-  if (Module['arguments']) arguments_ = Module['arguments'];
+  if (Module['arguments']) programArgs = Module['arguments'];
   if (Module['thisProgram']) thisProgram = Module['thisProgram'];
 
   // Assertions on removed incoming Module JS APIs.
@@ -4645,7 +4736,7 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['___cxa_throw'] = ___cxa_throw;
   Module['ExceptionInfo'] = ExceptionInfo;
   Module['uncaughtExceptionCount'] = uncaughtExceptionCount;
-  Module['___syscall_faccessat'] = ___syscall_faccessat;
+  Module['___syscall_chmod'] = ___syscall_chmod;
   Module['SYSCALLS'] = SYSCALLS;
   Module['PATH'] = PATH;
   Module['FS'] = FS;
@@ -4660,6 +4751,8 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['stringToUTF8Array'] = stringToUTF8Array;
   Module['MEMFS'] = MEMFS;
   Module['mmapAlloc'] = mmapAlloc;
+  Module['zeroMemory'] = zeroMemory;
+  Module['alignMemory'] = alignMemory;
   Module['FS_modeStringToFlags'] = FS_modeStringToFlags;
   Module['FS_fileDataToTypedArray'] = FS_fileDataToTypedArray;
   Module['FS_getMode'] = FS_getMode;
@@ -4678,6 +4771,7 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['runDependencyWatcher'] = runDependencyWatcher;
   Module['FS_handledByPreloadPlugin'] = FS_handledByPreloadPlugin;
   Module['preloadPlugins'] = preloadPlugins;
+  Module['___syscall_faccessat'] = ___syscall_faccessat;
   Module['___syscall_fcntl64'] = ___syscall_fcntl64;
   Module['syscallGetVarargP'] = syscallGetVarargP;
   Module['syscallGetVarargI'] = syscallGetVarargI;
@@ -4705,6 +4799,8 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['INT53_MAX'] = INT53_MAX;
   Module['INT53_MIN'] = INT53_MIN;
   Module['__mktime_js'] = __mktime_js;
+  Module['__mmap_js'] = __mmap_js;
+  Module['__munmap_js'] = __munmap_js;
   Module['__tzset_js'] = __tzset_js;
   Module['_clock_time_get'] = _clock_time_get;
   Module['_emscripten_get_now'] = _emscripten_get_now;
@@ -4713,7 +4809,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['checkWasiClock'] = checkWasiClock;
   Module['_emscripten_resize_heap'] = _emscripten_resize_heap;
   Module['getHeapMax'] = getHeapMax;
-  Module['alignMemory'] = alignMemory;
   Module['growMemory'] = growMemory;
   Module['_environ_get'] = _environ_get;
   Module['getEnvStrings'] = getEnvStrings;
@@ -4759,12 +4854,14 @@ var _zsign_version = Module['_zsign_version'] = makeInvalidEarlyAccess('_zsign_v
 var _zsign_set_log_level = Module['_zsign_set_log_level'] = makeInvalidEarlyAccess('_zsign_set_log_level');
 var _zsign_sign_macho = Module['_zsign_sign_macho'] = makeInvalidEarlyAccess('_zsign_sign_macho');
 var _zsign_sign_bundle = Module['_zsign_sign_bundle'] = makeInvalidEarlyAccess('_zsign_sign_bundle');
+var _zsign_sign_bundle_multi = Module['_zsign_sign_bundle_multi'] = makeInvalidEarlyAccess('_zsign_sign_bundle_multi');
 var _zsign_sign_macho_mem = Module['_zsign_sign_macho_mem'] = makeInvalidEarlyAccess('_zsign_sign_macho_mem');
 var _malloc = Module['_malloc'] = makeInvalidEarlyAccess('_malloc');
 var _zsign_free_buffer = Module['_zsign_free_buffer'] = makeInvalidEarlyAccess('_zsign_free_buffer');
 var _fflush = Module['_fflush'] = makeInvalidEarlyAccess('_fflush');
 var _emscripten_stack_get_end = Module['_emscripten_stack_get_end'] = makeInvalidEarlyAccess('_emscripten_stack_get_end');
 var _emscripten_stack_get_base = Module['_emscripten_stack_get_base'] = makeInvalidEarlyAccess('_emscripten_stack_get_base');
+var _emscripten_builtin_memalign = Module['_emscripten_builtin_memalign'] = makeInvalidEarlyAccess('_emscripten_builtin_memalign');
 var _emscripten_stack_init = Module['_emscripten_stack_init'] = makeInvalidEarlyAccess('_emscripten_stack_init');
 var _emscripten_stack_get_free = Module['_emscripten_stack_get_free'] = makeInvalidEarlyAccess('_emscripten_stack_get_free');
 var __emscripten_stack_restore = Module['__emscripten_stack_restore'] = makeInvalidEarlyAccess('__emscripten_stack_restore');
@@ -4781,12 +4878,14 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['zsign_set_log_level'] != 'undefined', 'missing Wasm export: zsign_set_log_level');
   assert(typeof wasmExports['zsign_sign_macho'] != 'undefined', 'missing Wasm export: zsign_sign_macho');
   assert(typeof wasmExports['zsign_sign_bundle'] != 'undefined', 'missing Wasm export: zsign_sign_bundle');
+  assert(typeof wasmExports['zsign_sign_bundle_multi'] != 'undefined', 'missing Wasm export: zsign_sign_bundle_multi');
   assert(typeof wasmExports['zsign_sign_macho_mem'] != 'undefined', 'missing Wasm export: zsign_sign_macho_mem');
   assert(typeof wasmExports['malloc'] != 'undefined', 'missing Wasm export: malloc');
   assert(typeof wasmExports['zsign_free_buffer'] != 'undefined', 'missing Wasm export: zsign_free_buffer');
   assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
   assert(typeof wasmExports['emscripten_stack_get_end'] != 'undefined', 'missing Wasm export: emscripten_stack_get_end');
   assert(typeof wasmExports['emscripten_stack_get_base'] != 'undefined', 'missing Wasm export: emscripten_stack_get_base');
+  assert(typeof wasmExports['emscripten_builtin_memalign'] != 'undefined', 'missing Wasm export: emscripten_builtin_memalign');
   assert(typeof wasmExports['emscripten_stack_init'] != 'undefined', 'missing Wasm export: emscripten_stack_init');
   assert(typeof wasmExports['emscripten_stack_get_free'] != 'undefined', 'missing Wasm export: emscripten_stack_get_free');
   assert(typeof wasmExports['_emscripten_stack_restore'] != 'undefined', 'missing Wasm export: _emscripten_stack_restore');
@@ -4800,12 +4899,14 @@ function assignWasmExports(wasmExports) {
   _zsign_set_log_level = Module['_zsign_set_log_level'] = createExportWrapper('zsign_set_log_level', 1);
   _zsign_sign_macho = Module['_zsign_sign_macho'] = createExportWrapper('zsign_sign_macho', 10);
   _zsign_sign_bundle = Module['_zsign_sign_bundle'] = createExportWrapper('zsign_sign_bundle', 14);
+  _zsign_sign_bundle_multi = Module['_zsign_sign_bundle_multi'] = createExportWrapper('zsign_sign_bundle_multi', 14);
   _zsign_sign_macho_mem = Module['_zsign_sign_macho_mem'] = createExportWrapper('zsign_sign_macho_mem', 16);
   _malloc = Module['_malloc'] = createExportWrapper('malloc', 1);
   _zsign_free_buffer = Module['_zsign_free_buffer'] = createExportWrapper('zsign_free_buffer', 1);
   _fflush = Module['_fflush'] = createExportWrapper('fflush', 1);
   _emscripten_stack_get_end = Module['_emscripten_stack_get_end'] = wasmExports['emscripten_stack_get_end'];
   _emscripten_stack_get_base = Module['_emscripten_stack_get_base'] = wasmExports['emscripten_stack_get_base'];
+  _emscripten_builtin_memalign = Module['_emscripten_builtin_memalign'] = createExportWrapper('emscripten_builtin_memalign', 2);
   _emscripten_stack_init = Module['_emscripten_stack_init'] = wasmExports['emscripten_stack_init'];
   _emscripten_stack_get_free = Module['_emscripten_stack_get_free'] = wasmExports['emscripten_stack_get_free'];
   __emscripten_stack_restore = Module['__emscripten_stack_restore'] = wasmExports['_emscripten_stack_restore'];
@@ -4820,6 +4921,8 @@ var wasmImports = {
   __assert_fail: ___assert_fail,
   /** @export */
   __cxa_throw: ___cxa_throw,
+  /** @export */
+  __syscall_chmod: ___syscall_chmod,
   /** @export */
   __syscall_faccessat: ___syscall_faccessat,
   /** @export */
@@ -4856,6 +4959,10 @@ var wasmImports = {
   _localtime_js: __localtime_js,
   /** @export */
   _mktime_js: __mktime_js,
+  /** @export */
+  _mmap_js: __mmap_js,
+  /** @export */
+  _munmap_js: __munmap_js,
   /** @export */
   _tzset_js: __tzset_js,
   /** @export */

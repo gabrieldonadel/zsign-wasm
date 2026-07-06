@@ -1317,17 +1317,8 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   };
   
   
-  var zeroMemory = (ptr, size) => HEAPU8.fill(0, ptr, ptr + size);
-  
-  var alignMemory = (size, alignment) => {
-      assert(alignment, 'alignment argument is required');
-      return Math.ceil(size / alignment) * alignment;
-    };
   var mmapAlloc = (size) => {
-      size = alignMemory(size, 65536);
-      var ptr = _emscripten_builtin_memalign(65536, size);
-      if (ptr) zeroMemory(ptr, size);
-      return ptr;
+      abort('internal error: mmapAlloc called but `emscripten_builtin_memalign` native symbol not exported');
     };
   var MEMFS = {
   ops_table:null,
@@ -3624,19 +3615,6 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
         return ret;
       },
   };
-  function ___syscall_chmod(path, mode) {
-  try {
-  
-      path = SYSCALLS.getStr(path);
-      FS.chmod(path, mode);
-      return 0;
-    } catch (e) {
-    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
-    return -e.errno;
-  }
-  }
-  
-
   function ___syscall_faccessat(dirfd, path, amode, flags) {
   try {
   
@@ -4071,6 +4049,28 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   var __abort_js = () =>
       abort('native code called abort()');
 
+  var INT53_MAX = 9007199254740992;
+  
+  var INT53_MIN = -9007199254740992;
+  var bigintToI53Checked = (num) => (num < INT53_MIN || num > INT53_MAX) ? NaN : Number(num);
+  function __gmtime_js(time, tmPtr) {
+    time = bigintToI53Checked(time);
+  
+  
+      var date = new Date(time * 1000);
+      HEAP32[((tmPtr)>>2)] = date.getUTCSeconds();
+      HEAP32[(((tmPtr)+(4))>>2)] = date.getUTCMinutes();
+      HEAP32[(((tmPtr)+(8))>>2)] = date.getUTCHours();
+      HEAP32[(((tmPtr)+(12))>>2)] = date.getUTCDate();
+      HEAP32[(((tmPtr)+(16))>>2)] = date.getUTCMonth();
+      HEAP32[(((tmPtr)+(20))>>2)] = date.getUTCFullYear()-1900;
+      HEAP32[(((tmPtr)+(24))>>2)] = date.getUTCDay();
+      var start = Date.UTC(date.getUTCFullYear(), 0, 1, 0, 0, 0, 0);
+      var yday = ((date.getTime() - start) / (1000 * 60 * 60 * 24))|0;
+      HEAP32[(((tmPtr)+(28))>>2)] = yday;
+    ;
+  }
+
   var isLeapYear = (year) => year%4 === 0 && (year%100 !== 0 || year%400 === 0);
   
   var MONTH_DAYS_LEAP_CUMULATIVE = [0,31,60,91,121,152,182,213,244,274,305,335];
@@ -4084,10 +4084,6 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       return yday;
     };
   
-  var INT53_MAX = 9007199254740992;
-  
-  var INT53_MIN = -9007199254740992;
-  var bigintToI53Checked = (num) => (num < INT53_MIN || num > INT53_MAX) ? NaN : Number(num);
   function __localtime_js(time, tmPtr) {
     time = bigintToI53Checked(time);
   
@@ -4164,51 +4160,6 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
      })();
   return BigInt(ret);
   };
-
-  
-  
-  
-  
-  
-  function __mmap_js(len, prot, flags, fd, offset, allocated, addr) {
-    offset = bigintToI53Checked(offset);
-  
-  
-  try {
-  
-      // musl's mmap doesn't allow values over a certain limit
-      // see OFF_MASK in mmap.c.
-      assert(!isNaN(offset));
-      var stream = SYSCALLS.getStreamFromFD(fd);
-      var res = FS.mmap(stream, len, offset, prot, flags);
-      var ptr = res.ptr;
-      HEAP32[((allocated)>>2)] = res.allocated;
-      HEAPU32[((addr)>>2)] = ptr;
-      return 0;
-    } catch (e) {
-    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
-    return -e.errno;
-  }
-  ;
-  }
-
-  
-  function __munmap_js(addr, len, prot, flags, fd, offset) {
-    offset = bigintToI53Checked(offset);
-  
-  
-  try {
-  
-      var stream = SYSCALLS.getStreamFromFD(fd);
-      if (prot & 2) {
-        SYSCALLS.doMsync(addr, stream, len, flags, offset);
-      }
-    } catch (e) {
-    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
-    return -e.errno;
-  }
-  ;
-  }
 
   
   var __tzset_js = (timezone, daylight, std_name, dst_name) => {
@@ -4303,6 +4254,10 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       // casing all heap size related code to treat 0 specially.
       2147483648;
   
+  var alignMemory = (size, alignment) => {
+      assert(alignment, 'alignment argument is required');
+      return Math.ceil(size / alignment) * alignment;
+    };
   
   var growMemory = (size) => {
       var oldHeapSize = wasmMemory.buffer.byteLength;
@@ -4736,7 +4691,7 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['___cxa_throw'] = ___cxa_throw;
   Module['ExceptionInfo'] = ExceptionInfo;
   Module['uncaughtExceptionCount'] = uncaughtExceptionCount;
-  Module['___syscall_chmod'] = ___syscall_chmod;
+  Module['___syscall_faccessat'] = ___syscall_faccessat;
   Module['SYSCALLS'] = SYSCALLS;
   Module['PATH'] = PATH;
   Module['FS'] = FS;
@@ -4751,8 +4706,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['stringToUTF8Array'] = stringToUTF8Array;
   Module['MEMFS'] = MEMFS;
   Module['mmapAlloc'] = mmapAlloc;
-  Module['zeroMemory'] = zeroMemory;
-  Module['alignMemory'] = alignMemory;
   Module['FS_modeStringToFlags'] = FS_modeStringToFlags;
   Module['FS_fileDataToTypedArray'] = FS_fileDataToTypedArray;
   Module['FS_getMode'] = FS_getMode;
@@ -4771,7 +4724,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['runDependencyWatcher'] = runDependencyWatcher;
   Module['FS_handledByPreloadPlugin'] = FS_handledByPreloadPlugin;
   Module['preloadPlugins'] = preloadPlugins;
-  Module['___syscall_faccessat'] = ___syscall_faccessat;
   Module['___syscall_fcntl64'] = ___syscall_fcntl64;
   Module['syscallGetVarargP'] = syscallGetVarargP;
   Module['syscallGetVarargI'] = syscallGetVarargI;
@@ -4790,17 +4742,16 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['___syscall_stat64'] = ___syscall_stat64;
   Module['___syscall_unlinkat'] = ___syscall_unlinkat;
   Module['__abort_js'] = __abort_js;
+  Module['__gmtime_js'] = __gmtime_js;
+  Module['bigintToI53Checked'] = bigintToI53Checked;
+  Module['INT53_MAX'] = INT53_MAX;
+  Module['INT53_MIN'] = INT53_MIN;
   Module['__localtime_js'] = __localtime_js;
   Module['ydayFromDate'] = ydayFromDate;
   Module['isLeapYear'] = isLeapYear;
   Module['MONTH_DAYS_LEAP_CUMULATIVE'] = MONTH_DAYS_LEAP_CUMULATIVE;
   Module['MONTH_DAYS_REGULAR_CUMULATIVE'] = MONTH_DAYS_REGULAR_CUMULATIVE;
-  Module['bigintToI53Checked'] = bigintToI53Checked;
-  Module['INT53_MAX'] = INT53_MAX;
-  Module['INT53_MIN'] = INT53_MIN;
   Module['__mktime_js'] = __mktime_js;
-  Module['__mmap_js'] = __mmap_js;
-  Module['__munmap_js'] = __munmap_js;
   Module['__tzset_js'] = __tzset_js;
   Module['_clock_time_get'] = _clock_time_get;
   Module['_emscripten_get_now'] = _emscripten_get_now;
@@ -4809,6 +4760,7 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['checkWasiClock'] = checkWasiClock;
   Module['_emscripten_resize_heap'] = _emscripten_resize_heap;
   Module['getHeapMax'] = getHeapMax;
+  Module['alignMemory'] = alignMemory;
   Module['growMemory'] = growMemory;
   Module['_environ_get'] = _environ_get;
   Module['getEnvStrings'] = getEnvStrings;
@@ -4850,6 +4802,7 @@ function zsign_fill_random(buf,buflen) { if (buflen <= 0) { return 0; } if (type
 // Imports from the Wasm binary.
 var _free = Module['_free'] = makeInvalidEarlyAccess('_free');
 var _strerror = Module['_strerror'] = makeInvalidEarlyAccess('_strerror');
+var _fflush = Module['_fflush'] = makeInvalidEarlyAccess('_fflush');
 var _zsign_version = Module['_zsign_version'] = makeInvalidEarlyAccess('_zsign_version');
 var _zsign_set_log_level = Module['_zsign_set_log_level'] = makeInvalidEarlyAccess('_zsign_set_log_level');
 var _zsign_sign_macho = Module['_zsign_sign_macho'] = makeInvalidEarlyAccess('_zsign_sign_macho');
@@ -4858,10 +4811,8 @@ var _zsign_sign_bundle_multi = Module['_zsign_sign_bundle_multi'] = makeInvalidE
 var _zsign_sign_macho_mem = Module['_zsign_sign_macho_mem'] = makeInvalidEarlyAccess('_zsign_sign_macho_mem');
 var _malloc = Module['_malloc'] = makeInvalidEarlyAccess('_malloc');
 var _zsign_free_buffer = Module['_zsign_free_buffer'] = makeInvalidEarlyAccess('_zsign_free_buffer');
-var _fflush = Module['_fflush'] = makeInvalidEarlyAccess('_fflush');
 var _emscripten_stack_get_end = Module['_emscripten_stack_get_end'] = makeInvalidEarlyAccess('_emscripten_stack_get_end');
 var _emscripten_stack_get_base = Module['_emscripten_stack_get_base'] = makeInvalidEarlyAccess('_emscripten_stack_get_base');
-var _emscripten_builtin_memalign = Module['_emscripten_builtin_memalign'] = makeInvalidEarlyAccess('_emscripten_builtin_memalign');
 var _emscripten_stack_init = Module['_emscripten_stack_init'] = makeInvalidEarlyAccess('_emscripten_stack_init');
 var _emscripten_stack_get_free = Module['_emscripten_stack_get_free'] = makeInvalidEarlyAccess('_emscripten_stack_get_free');
 var __emscripten_stack_restore = Module['__emscripten_stack_restore'] = makeInvalidEarlyAccess('__emscripten_stack_restore');
@@ -4874,6 +4825,7 @@ var wasmMemory = Module['wasmMemory'] = makeInvalidEarlyAccess('wasmMemory');
 function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['free'] != 'undefined', 'missing Wasm export: free');
   assert(typeof wasmExports['strerror'] != 'undefined', 'missing Wasm export: strerror');
+  assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
   assert(typeof wasmExports['zsign_version'] != 'undefined', 'missing Wasm export: zsign_version');
   assert(typeof wasmExports['zsign_set_log_level'] != 'undefined', 'missing Wasm export: zsign_set_log_level');
   assert(typeof wasmExports['zsign_sign_macho'] != 'undefined', 'missing Wasm export: zsign_sign_macho');
@@ -4882,10 +4834,8 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['zsign_sign_macho_mem'] != 'undefined', 'missing Wasm export: zsign_sign_macho_mem');
   assert(typeof wasmExports['malloc'] != 'undefined', 'missing Wasm export: malloc');
   assert(typeof wasmExports['zsign_free_buffer'] != 'undefined', 'missing Wasm export: zsign_free_buffer');
-  assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
   assert(typeof wasmExports['emscripten_stack_get_end'] != 'undefined', 'missing Wasm export: emscripten_stack_get_end');
   assert(typeof wasmExports['emscripten_stack_get_base'] != 'undefined', 'missing Wasm export: emscripten_stack_get_base');
-  assert(typeof wasmExports['emscripten_builtin_memalign'] != 'undefined', 'missing Wasm export: emscripten_builtin_memalign');
   assert(typeof wasmExports['emscripten_stack_init'] != 'undefined', 'missing Wasm export: emscripten_stack_init');
   assert(typeof wasmExports['emscripten_stack_get_free'] != 'undefined', 'missing Wasm export: emscripten_stack_get_free');
   assert(typeof wasmExports['_emscripten_stack_restore'] != 'undefined', 'missing Wasm export: _emscripten_stack_restore');
@@ -4895,6 +4845,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['__indirect_function_table'] != 'undefined', 'missing Wasm export: __indirect_function_table');
   _free = Module['_free'] = createExportWrapper('free', 1);
   _strerror = Module['_strerror'] = createExportWrapper('strerror', 1);
+  _fflush = Module['_fflush'] = createExportWrapper('fflush', 1);
   _zsign_version = Module['_zsign_version'] = createExportWrapper('zsign_version', 0);
   _zsign_set_log_level = Module['_zsign_set_log_level'] = createExportWrapper('zsign_set_log_level', 1);
   _zsign_sign_macho = Module['_zsign_sign_macho'] = createExportWrapper('zsign_sign_macho', 10);
@@ -4903,10 +4854,8 @@ function assignWasmExports(wasmExports) {
   _zsign_sign_macho_mem = Module['_zsign_sign_macho_mem'] = createExportWrapper('zsign_sign_macho_mem', 16);
   _malloc = Module['_malloc'] = createExportWrapper('malloc', 1);
   _zsign_free_buffer = Module['_zsign_free_buffer'] = createExportWrapper('zsign_free_buffer', 1);
-  _fflush = Module['_fflush'] = createExportWrapper('fflush', 1);
   _emscripten_stack_get_end = Module['_emscripten_stack_get_end'] = wasmExports['emscripten_stack_get_end'];
   _emscripten_stack_get_base = Module['_emscripten_stack_get_base'] = wasmExports['emscripten_stack_get_base'];
-  _emscripten_builtin_memalign = Module['_emscripten_builtin_memalign'] = createExportWrapper('emscripten_builtin_memalign', 2);
   _emscripten_stack_init = Module['_emscripten_stack_init'] = wasmExports['emscripten_stack_init'];
   _emscripten_stack_get_free = Module['_emscripten_stack_get_free'] = wasmExports['emscripten_stack_get_free'];
   __emscripten_stack_restore = Module['__emscripten_stack_restore'] = wasmExports['_emscripten_stack_restore'];
@@ -4921,8 +4870,6 @@ var wasmImports = {
   __assert_fail: ___assert_fail,
   /** @export */
   __cxa_throw: ___cxa_throw,
-  /** @export */
-  __syscall_chmod: ___syscall_chmod,
   /** @export */
   __syscall_faccessat: ___syscall_faccessat,
   /** @export */
@@ -4956,13 +4903,11 @@ var wasmImports = {
   /** @export */
   _abort_js: __abort_js,
   /** @export */
+  _gmtime_js: __gmtime_js,
+  /** @export */
   _localtime_js: __localtime_js,
   /** @export */
   _mktime_js: __mktime_js,
-  /** @export */
-  _mmap_js: __mmap_js,
-  /** @export */
-  _munmap_js: __munmap_js,
   /** @export */
   _tzset_js: __tzset_js,
   /** @export */

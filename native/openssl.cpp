@@ -93,18 +93,55 @@ const char* ZSignAsset::s_szAppleRootCACert = ""
 "UKqK1drk/NAJBzewdXUh\n"
 "-----END CERTIFICATE-----\n";
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+// Built-in provider init fns (defined in the statically linked libcrypto). In a
+// static WASM build there is no loadable provider MODULE, so OSSL_PROVIDER_load
+// alone can't find "legacy"/"default" — they must be registered as built-ins
+// first. Without the legacy provider, PKCS12_parse can't decrypt the legacy
+// 3DES/RC2-encrypted .p12 that Apple tooling (and our buildPkcs12) produces.
+// (Loading legacy also requires loading default explicitly, since loading any
+// provider disables the implicit default-provider fallback.)
+extern "C" OSSL_provider_init_fn ossl_default_provider_init;
+extern "C" OSSL_provider_init_fn ossl_legacy_provider_init;
+static void EnsureProviders()
+{
+	static bool done = false;
+	if (done) return;
+	done = true;
+	OSSL_PROVIDER_add_builtin(NULL, "default", ossl_default_provider_init);
+	OSSL_PROVIDER_add_builtin(NULL, "legacy", ossl_legacy_provider_init);
+	OSSL_PROVIDER_load(NULL, "default");
+	OSSL_PROVIDER_load(NULL, "legacy");
+}
+#else
+static void EnsureProviders() {}
+#endif
+
 ZSignAsset::OpenSSLInit::OpenSSLInit()
 {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 	OpenSSL_add_all_algorithms();
 	ERR_load_crypto_strings();
+#elif OPENSSL_VERSION_NUMBER >= 0x30000000L
+	EnsureProviders();
 #endif
 }
 
 bool ZSignAsset::CMSError()
 {
 	// openssl-wasm is a no-filesystem build: no ERR_print_errors_fp / BIO_new_fp.
-	// The stdout dump is diagnostic only — just drain the error queue.
+	// Dump the error stack via a memory BIO so failures are diagnosable.
+	BIO* bio = BIO_new(BIO_s_mem());
+	if (bio) {
+		ERR_print_errors(bio);
+		char* data = NULL;
+		long len = BIO_get_mem_data(bio, &data);
+		if (data && len > 0) {
+			fwrite(data, 1, (size_t)len, stderr);
+			fflush(stderr);
+		}
+		BIO_free(bio);
+	}
 	ERR_clear_error();
 	return false;
 }
@@ -618,27 +655,38 @@ bool ZSignAsset::Init(
 
 	X509* x509Cert = NULL;
 	EVP_PKEY* evpPKey = NULL;
-	BIO* bioPKey = BIO_new_file(strPKeyFile.c_str(), "rb");
-	if (NULL != bioPKey) {
-		evpPKey = PEM_read_bio_PrivateKey(bioPKey, NULL, NULL, (void*)strPassword.c_str());
+	// WASM: OpenSSL's BIO_new_file/openssl_fopen doesn't reach the Emscripten
+	// MEMFS (returns NULL), so read the key bytes via ZFile (which does) into a
+	// memory BIO — same pattern as the prov/entitlements loads above.
+	string strPKeyData;
+	if (ZFile::ReadFile(strPKeyFile.c_str(), strPKeyData) && !strPKeyData.empty()) {
+		const char* pkd = strPKeyData.data();
+		const int pkl = (int)strPKeyData.size();
+		// Try PEM, then raw DER key, then PKCS#12 — a FRESH mem BIO per attempt
+		// (BIO_reset on a read-only mem buf doesn't reliably restore position
+		// across parsers, which left d2i_PKCS12_bio reading from the wrong offset).
+		BIO* bPem = BIO_new_mem_buf(pkd, pkl);
+		evpPKey = PEM_read_bio_PrivateKey(bPem, NULL, NULL, (void*)strPassword.c_str());
+		BIO_free(bPem);
 		if (NULL == evpPKey) {
-			BIO_reset(bioPKey);
-			evpPKey = d2i_PrivateKey_bio(bioPKey, NULL);
-			if (NULL == evpPKey) {
-				BIO_reset(bioPKey);
-				OSSL_PROVIDER_load(NULL, "legacy");
-				PKCS12* p12 = d2i_PKCS12_bio(bioPKey, NULL);
-				if (NULL != p12) {
-					if (0 == PKCS12_parse(p12, strPassword.c_str(), &evpPKey, &x509Cert, NULL)) {
-						CMSError();
-					}
-					PKCS12_free(p12);
-				} else {
+			BIO* bDer = BIO_new_mem_buf(pkd, pkl);
+			evpPKey = d2i_PrivateKey_bio(bDer, NULL);
+			BIO_free(bDer);
+		}
+		if (NULL == evpPKey) {
+			EnsureProviders(); // legacy provider for 3DES/RC2-encrypted .p12
+			BIO* bP12 = BIO_new_mem_buf(pkd, pkl);
+			PKCS12* p12 = d2i_PKCS12_bio(bP12, NULL);
+			BIO_free(bP12);
+			if (NULL != p12) {
+				if (0 == PKCS12_parse(p12, strPassword.c_str(), &evpPKey, &x509Cert, NULL)) {
 					CMSError();
 				}
+				PKCS12_free(p12);
+			} else {
+				CMSError();
 			}
 		}
-		BIO_free(bioPKey);
 	}
 
 	if (NULL == evpPKey) {
@@ -647,14 +695,18 @@ bool ZSignAsset::Init(
 	}
 
 	if (NULL == x509Cert && !strCertFile.empty()) {
-		BIO* bioCert = BIO_new_file(strCertFile.c_str(), "r");
-		if (NULL != bioCert) {
-			x509Cert = PEM_read_bio_X509(bioCert, NULL, 0, NULL);
-			if (NULL == x509Cert) {
-				BIO_reset(bioCert);
-				x509Cert = d2i_X509_bio(bioCert, NULL);
+		// WASM: read via ZFile + memory BIO (BIO_new_file returns NULL here).
+		string strCertFileData;
+		if (ZFile::ReadFile(strCertFile.c_str(), strCertFileData) && !strCertFileData.empty()) {
+			BIO* bioCert = BIO_new_mem_buf(strCertFileData.data(), (int)strCertFileData.size());
+			if (NULL != bioCert) {
+				x509Cert = PEM_read_bio_X509(bioCert, NULL, 0, NULL);
+				if (NULL == x509Cert) {
+					BIO_reset(bioCert);
+					x509Cert = d2i_X509_bio(bioCert, NULL);
+				}
+				BIO_free(bioCert);
 			}
-			BIO_free(bioCert);
 		}
 	}
 

@@ -1,6 +1,6 @@
 {
-  "name": "@lbr77/zsign-wasm-resigner-wrapper",
-  "version": "0.1.0",
+  "name": "zsign-wasm",
+  "version": "0.0.1",
   "description": "WASM full resigning toolkit packaged with stable src/dist/binary directories.",
   "license": "MIT",
   "type": "module",

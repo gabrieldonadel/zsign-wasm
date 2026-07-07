@@ -119,7 +119,29 @@ bool ZBundle::GetObjectsToSign(const string& strFolder, jvalue& jvInfo)
 			jvInfo["folders"].push_back(jvNode);
 		}
 	}
-	
+
+	// Each bundle's main executable (the app itself + every nested .app/.appex/
+	// .framework/.xctest) is signed via its own bundle node below, WITH that
+	// bundle's real CodeResources. It must NOT also be enumerated here as a loose
+	// Mach-O: the files[] loop in SignNode signs those with EMPTY CodeResources
+	// ("", "", "", ""), and that empty-resource signature defeats the real one,
+	// leaving CodeDirectory special slot -3 zero -> "Sealed Resources=none".
+	set<string> setBundleExes;
+	auto addBundleExe = [&](const string& strBundleFolder) {
+		string strInfoData;
+		ZFile::ReadFile((strBundleFolder + "/Info.plist").c_str(), strInfoData);
+		jvalue jvI;
+		jvI.read_plist(strInfoData);
+		string strExe = jvI["CFBundleExecutable"];
+		if (!strExe.empty()) {
+			setBundleExes.insert(strBundleFolder + "/" + strExe);
+		}
+	};
+	addBundleExe(m_strAppFolder);
+	for (const string& bundlePath : allBundles) {
+		addBundleExe(bundlePath);
+	}
+
 	ZFile::EnumFolder(strFolder.c_str(), true, NULL, [&](bool bFolder, const string& strPath) {
 		if (bFolder || string::npos != strPath.find(".dSYM") ||
 			string::npos != strPath.find("_WatchKitStub")) {
@@ -143,7 +165,7 @@ bool ZBundle::GetObjectsToSign(const string& strFolder, jvalue& jvInfo)
 				fclose(fp);
 			}
 		}
-		if (bMachO) {
+		if (bMachO && setBundleExes.find(strPath) == setBundleExes.end()) {
 			jvInfo["files"].push_back(strPath.substr(m_strAppFolder.size() + 1));
 		}
 		return false;

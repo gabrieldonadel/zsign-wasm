@@ -28,7 +28,7 @@ interface CreateOptions {
   moduleOptions?: Record<string, unknown>;
 }
 
-interface SignBundleOptions {
+export interface SignBundleOptions {
   certFile?: string;
   pkeyFile?: string;
   provFile?: string;
@@ -44,7 +44,16 @@ interface SignBundleOptions {
   enableCache?: boolean;
 }
 
-interface EmscriptenFs {
+/**
+ * Multi-profile bundle signing: one provisioning profile per bundle in the
+ * folder (main app + each app extension / watch app). zsign matches each
+ * profile to a bundle by its app-id suffix.
+ */
+export interface SignBundleMultiOptions extends Omit<SignBundleOptions, "provFile"> {
+  provFiles: string[];
+}
+
+export interface EmscriptenFs {
   mkdirTree(pathname: string): void;
   writeFile(pathname: string, data: Uint8Array, options?: Record<string, unknown>): void;
   readFile(pathname: string, options?: Record<string, unknown>): Uint8Array;
@@ -57,21 +66,24 @@ interface EmscriptenFs {
   unlink(pathname: string): void;
 }
 
-interface EmscriptenModuleLike {
+export interface EmscriptenModuleLike {
   FS?: EmscriptenFs;
 }
 
-interface InternalClient {
+/** The client instance created by the wasm bundle's `ZsignWasmClient.create()`. */
+export interface ZsignWasmClientInstance {
   mod: EmscriptenModuleLike;
   version(): string;
   setLogLevel(level: number): number;
   signMacho(inputMachO: BinaryLike, options?: SignMachOOptions): Uint8Array;
   signBundle(inputFolder: string, options?: SignBundleOptions): number | void;
+  signBundleMulti(inputFolder: string, options: SignBundleMultiOptions): number | void;
 }
 
-interface WasmBundleExports {
+/** The CommonJS exports of `zsign-wasm/binary/zsign-wasm.min.js`. */
+export interface WasmBundleExports {
   ZsignWasmClient: {
-    create(options?: CreateOptions): Promise<InternalClient>;
+    create(options?: CreateOptions): Promise<ZsignWasmClientInstance>;
   };
   createZsignModule?: ModuleFactory;
   createEmbeddedZsignModule?: ModuleFactory;
@@ -205,9 +217,9 @@ export async function createEmbeddedZsignModule(
 
 export class ZsignWasmClient {
   readonly mod: EmscriptenModuleLike;
-  private readonly client: InternalClient;
+  private readonly client: ZsignWasmClientInstance;
 
-  private constructor(client: InternalClient) {
+  private constructor(client: ZsignWasmClientInstance) {
     this.client = client;
     this.mod = client.mod;
   }
@@ -232,6 +244,10 @@ export class ZsignWasmClient {
 
   signBundle(inputFolder: string, options: SignBundleOptions = {}): number | void {
     return this.client.signBundle(inputFolder, options);
+  }
+
+  signBundleMulti(inputFolder: string, options: SignBundleMultiOptions): number | void {
+    return this.client.signBundleMulti(inputFolder, options);
   }
 }
 

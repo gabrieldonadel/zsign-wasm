@@ -116,7 +116,13 @@ export async function createResigner(options?: CreateResignerOptions): Promise<Z
 
 export type {
   SignMachOOptions,
-  SignIpaOptions
+  SignIpaOptions,
+  SignBundleOptions,
+  SignBundleMultiOptions,
+  EmscriptenFs,
+  EmscriptenModuleLike,
+  ZsignWasmClientInstance,
+  WasmBundleExports
 } from "./runtime.js";
 
 export {

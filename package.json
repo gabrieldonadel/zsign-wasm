@@ -1,6 +1,6 @@
 {
   "name": "zsign-wasm",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "WASM full resigning toolkit packaged with stable src/dist/binary directories.",
   "license": "MIT",
   "type": "module",
@@ -16,6 +16,7 @@
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
     },
+    "./binary/zsign-wasm.min.js": "./binary/zsign-wasm.min.js",
     "./package.json": "./package.json"
   },
   "files": [

@@ -4049,28 +4049,6 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   var __abort_js = () =>
       abort('native code called abort()');
 
-  var INT53_MAX = 9007199254740992;
-  
-  var INT53_MIN = -9007199254740992;
-  var bigintToI53Checked = (num) => (num < INT53_MIN || num > INT53_MAX) ? NaN : Number(num);
-  function __gmtime_js(time, tmPtr) {
-    time = bigintToI53Checked(time);
-  
-  
-      var date = new Date(time * 1000);
-      HEAP32[((tmPtr)>>2)] = date.getUTCSeconds();
-      HEAP32[(((tmPtr)+(4))>>2)] = date.getUTCMinutes();
-      HEAP32[(((tmPtr)+(8))>>2)] = date.getUTCHours();
-      HEAP32[(((tmPtr)+(12))>>2)] = date.getUTCDate();
-      HEAP32[(((tmPtr)+(16))>>2)] = date.getUTCMonth();
-      HEAP32[(((tmPtr)+(20))>>2)] = date.getUTCFullYear()-1900;
-      HEAP32[(((tmPtr)+(24))>>2)] = date.getUTCDay();
-      var start = Date.UTC(date.getUTCFullYear(), 0, 1, 0, 0, 0, 0);
-      var yday = ((date.getTime() - start) / (1000 * 60 * 60 * 24))|0;
-      HEAP32[(((tmPtr)+(28))>>2)] = yday;
-    ;
-  }
-
   var isLeapYear = (year) => year%4 === 0 && (year%100 !== 0 || year%400 === 0);
   
   var MONTH_DAYS_LEAP_CUMULATIVE = [0,31,60,91,121,152,182,213,244,274,305,335];
@@ -4084,6 +4062,10 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       return yday;
     };
   
+  var INT53_MAX = 9007199254740992;
+  
+  var INT53_MIN = -9007199254740992;
+  var bigintToI53Checked = (num) => (num < INT53_MIN || num > INT53_MAX) ? NaN : Number(num);
   function __localtime_js(time, tmPtr) {
     time = bigintToI53Checked(time);
   
@@ -4742,15 +4724,14 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   Module['___syscall_stat64'] = ___syscall_stat64;
   Module['___syscall_unlinkat'] = ___syscall_unlinkat;
   Module['__abort_js'] = __abort_js;
-  Module['__gmtime_js'] = __gmtime_js;
-  Module['bigintToI53Checked'] = bigintToI53Checked;
-  Module['INT53_MAX'] = INT53_MAX;
-  Module['INT53_MIN'] = INT53_MIN;
   Module['__localtime_js'] = __localtime_js;
   Module['ydayFromDate'] = ydayFromDate;
   Module['isLeapYear'] = isLeapYear;
   Module['MONTH_DAYS_LEAP_CUMULATIVE'] = MONTH_DAYS_LEAP_CUMULATIVE;
   Module['MONTH_DAYS_REGULAR_CUMULATIVE'] = MONTH_DAYS_REGULAR_CUMULATIVE;
+  Module['bigintToI53Checked'] = bigintToI53Checked;
+  Module['INT53_MAX'] = INT53_MAX;
+  Module['INT53_MIN'] = INT53_MIN;
   Module['__mktime_js'] = __mktime_js;
   Module['__tzset_js'] = __tzset_js;
   Module['_clock_time_get'] = _clock_time_get;
@@ -4902,8 +4883,6 @@ var wasmImports = {
   __syscall_unlinkat: ___syscall_unlinkat,
   /** @export */
   _abort_js: __abort_js,
-  /** @export */
-  _gmtime_js: __gmtime_js,
   /** @export */
   _localtime_js: __localtime_js,
   /** @export */

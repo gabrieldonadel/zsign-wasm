@@ -123,6 +123,15 @@ function main() {
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, output, 'utf8');
+
+  // The package root is "type": "module", which would make Node parse the
+  // CommonJS bundles in this directory as ESM (and silently drop their
+  // exports). Scope the directory back to CommonJS so require() works.
+  fs.writeFileSync(
+    path.join(path.dirname(outputPath), 'package.json'),
+    JSON.stringify({ type: 'commonjs' }, null, 2) + '\n',
+    'utf8'
+  );
 }
 
 main();

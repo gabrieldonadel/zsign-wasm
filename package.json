@@ -26,11 +26,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build:wasm": "cd build/wasm && make clean && make bundle",
+    "build:wasm": "cd build/wasm && make bundle",
+    "build:wasm:clean": "cd build/wasm && make clean && make bundle",
     "build:dist": "bunx tsc -p tsconfig.json",
     "build": "bun run build:wasm && bun run build:dist",
     "clean": "rm -rf dist binary",
-    "prepack": "bun run build"
+    "prepack": "bun run build:dist"
   },
   "dependencies": {
     "jszip": "^3.10.1"

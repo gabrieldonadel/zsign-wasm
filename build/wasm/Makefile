@@ -1,4 +1,12 @@
-EMSDK_ENV ?=
+# Locate emsdk_env.sh so `make` works without activating emsdk in the shell
+# first. Set EMSDK_ENV explicitly to override the search.
+EMSDK_ENV_CANDIDATES = \
+	$(EMSDK)/emsdk_env.sh \
+	$(HOME)/emsdk/emsdk_env.sh \
+	$(HOME)/Workspace/emsdk/emsdk_env.sh \
+	/opt/emsdk/emsdk_env.sh \
+	/usr/local/emsdk/emsdk_env.sh
+EMSDK_ENV ?= $(firstword $(wildcard $(EMSDK_ENV_CANDIDATES)))
 OPENSSL_WASM ?= ../../../openssl-wasm/precompiled
 
 ifneq ($(strip $(EMSDK_ENV)),)
@@ -48,13 +56,30 @@ LDFLAGS += -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringTo
 
 OBJS = $(SRCS:../../native/%.cpp=$(OBJDIR)/%.o)
 
-all: $(TARGET)
+all: check-toolchain $(TARGET)
 	@echo ">>> Build OK -> $(abspath $(TARGET))"
 
-bundle: $(TARGET) $(SINGLE)
+bundle: check-toolchain $(TARGET) $(SINGLE)
 	@mkdir -p $(BINDIR)
 	@cp -f $(CLIENT) $(CLIENT_OUT)
 	@echo ">>> Bundle OK -> $(abspath $(BINDIR))"
+
+# Fail before touching $(BINDIR): its contents are committed artifacts, and a
+# half-run build would leave the repo without a usable wasm bundle.
+check-toolchain:
+	@$(EMXX) --version >/dev/null 2>&1 || { \
+		echo ">>> em++ not found."; \
+		echo ">>> Install emsdk (https://emscripten.org/docs/getting_started/downloads.html),"; \
+		echo ">>> or point this build at an existing one:"; \
+		echo ">>>   make bundle EMSDK_ENV=/path/to/emsdk/emsdk_env.sh"; \
+		exit 1; \
+	}
+	@test -f $(OPENSSL_WASM)/lib/libcrypto.a || { \
+		echo ">>> OpenSSL wasm libs not found at $(OPENSSL_WASM)."; \
+		echo ">>> Build https://github.com/jedisct1/openssl-wasm, then:"; \
+		echo ">>>   make bundle OPENSSL_WASM=/absolute/path/to/openssl-wasm/precompiled"; \
+		exit 1; \
+	}
 
 $(SINGLE): $(TARGET) $(TARGET:.js=.wasm) $(CLIENT) $(PACKER)
 	@mkdir -p $(BINDIR)
@@ -73,4 +98,4 @@ clean:
 	rm -rf $(OBJDIR) $(TARGET) $(TARGET:.js=.wasm) $(CLIENT_OUT) $(SINGLE)
 	@echo ">>> Clean OK"
 
-.PHONY: all bundle clean
+.PHONY: all bundle check-toolchain clean

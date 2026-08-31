@@ -23,9 +23,10 @@ string ZSign::_DER(const jvalue& data)
 {
 	string strOutput;
 	if (data.is_bool()) {
+		// DER BOOLEAN: true MUST be 0xFF, false 0x00.
 		strOutput.append(1, 0x01);
 		strOutput.append(1, 1);
-		strOutput.append(1, data.as_bool() ? 1 : 0);
+		strOutput.append(1, data.as_bool() ? (char)0xFF : (char)0x00);
 	} else if (data.is_int()) {
 		uint64_t uVal = data.as_int64();
 		strOutput.append(1, 0x02);
@@ -51,24 +52,29 @@ string ZSign::_DER(const jvalue& data)
 		_DERLength(strOutput, strArray.size());
 		strOutput += strArray;
 	} else if (data.is_object()) {
+		// Apple encodes dictionaries as a context-specific [16] constructed value
+		// holding one SEQUENCE { UTF8String key, value } per entry, with entries
+		// sorted by key for a deterministic (canonical) encoding.
 		string strDict;
 		vector<string> arrKeys;
 		data.get_keys(arrKeys);
+		std::sort(arrKeys.begin(), arrKeys.end());
 		for (size_t i = 0; i < arrKeys.size(); i++) {
 			string& strKey = arrKeys[i];
 			string strVal = _DER(data[strKey]);
 
+			string strEntry;
+			strEntry.append(1, 0x0c);
+			_DERLength(strEntry, strKey.size());
+			strEntry += strKey;
+			strEntry += strVal;
+
 			strDict.append(1, 0x30);
-			_DERLength(strDict, (2 + strKey.size() + strVal.size()));
-
-			strDict.append(1, 0x0c);
-			_DERLength(strDict, strKey.size());
-			strDict += strKey;
-
-			strDict += strVal;
+			_DERLength(strDict, strEntry.size());
+			strDict += strEntry;
 		}
 
-		strOutput.append(1, 0x31);
+		strOutput.append(1, (char)0xB0);
 		_DERLength(strOutput, strDict.size());
 		strOutput += strDict;
 	} else if (data.is_double()) {
@@ -317,7 +323,21 @@ bool ZSign::SlotBuildDerEntitlements(const string& strEntitlements, string& strO
 	jvalue jvInfo;
 	jvInfo.read_plist(strEntitlements);
 
-	string strRawEntitlementsData = _DER(jvInfo);
+	// Apple's DER entitlements are the plist dictionary wrapped in
+	// [APPLICATION 16] { INTEGER version(1), <dictionary> }. Without this
+	// wrapper the OS reports "invalid entitlements blob" and ignores them.
+	string strDict = _DER(jvInfo);
+	string strBody;
+	strBody.append(1, 0x02); // INTEGER
+	strBody.append(1, 0x01); // length 1
+	strBody.append(1, 0x01); // version = 1
+	strBody += strDict;
+
+	string strRawEntitlementsData;
+	strRawEntitlementsData.append(1, (char)0x70); // [APPLICATION 16] constructed
+	_DERLength(strRawEntitlementsData, strBody.size());
+	strRawEntitlementsData += strBody;
+
 	uint32_t uMagic = BE((uint32_t)CSMAGIC_EMBEDDED_DER_ENTITLEMENTS);
 	uint32_t uLength = BE((uint32_t)strRawEntitlementsData.size() + 8);
 
@@ -662,16 +682,28 @@ bool ZSign::SlotBuildCMSSignature(ZSignAsset* pSignAsset,
 		return true;
 	}
 
+	// The cdhash of a code directory is a digest of the whole slot, taken with the
+	// same algorithm the directory declares. zsign emits a SHA-1 primary and a
+	// SHA-256 alternate directory; SHA256-only signing leaves the alternate empty
+	// and keeps a single SHA-256 directory in strCodeDirectorySlot.
 	jvalue jvHashes;
 	string strCDHashesPlist;
 	string strCodeDirectorySlotSHA1;
 	string strAltnateCodeDirectorySlot256;
-	ZSHA::SHA1(strCodeDirectorySlot, strCodeDirectorySlotSHA1);
-	ZSHA::SHA256(strAltnateCodeDirectorySlot, strAltnateCodeDirectorySlot256);
+	if (!strAltnateCodeDirectorySlot.empty()) {
+		ZSHA::SHA1(strCodeDirectorySlot, strCodeDirectorySlotSHA1);
+		ZSHA::SHA256(strAltnateCodeDirectorySlot, strAltnateCodeDirectorySlot256);
+	} else {
+		ZSHA::SHA256(strCodeDirectorySlot, strAltnateCodeDirectorySlot256);
+	}
 
-	size_t cdHashSize = strCodeDirectorySlotSHA1.size();
-	jvHashes["cdhashes"][0].assign_data(strCodeDirectorySlotSHA1.data(), cdHashSize);
-	jvHashes["cdhashes"][1].assign_data(strAltnateCodeDirectorySlot256.data(), cdHashSize);
+	// V1 cdhashes plist: 20-byte truncated hashes, one per code directory.
+	const size_t cdHashSize = 20;
+	int nHashIndex = 0;
+	if (!strCodeDirectorySlotSHA1.empty()) {
+		jvHashes["cdhashes"][nHashIndex++].assign_data(strCodeDirectorySlotSHA1.data(), cdHashSize);
+	}
+	jvHashes["cdhashes"][nHashIndex++].assign_data(strAltnateCodeDirectorySlot256.data(), cdHashSize);
 	jvHashes.style_write_plist(strCDHashesPlist);
 
 	string strCMSData;

@@ -3,6 +3,10 @@
   "version": "0.0.3",
   "description": "WASM full resigning toolkit packaged with stable src/dist/binary directories.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gabrieldonadel/zsign-wasm.git"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

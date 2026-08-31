@@ -305,16 +305,48 @@ ZSIGN_EXPORT int zsign_sign_bundle_multi(
 		ZFile::CreateFolder("./.zsign_debug");
 	}
 
+	// An explicit entitlements blob is meant only for the target whose
+	// application-identifier it carries. Applying it to every target gives app
+	// extensions the parent app's application-identifier, which App Store
+	// validation rejects (errors 90046/90164). So parse the explicit entitlements
+	// once, sign each non-adhoc target with the entitlements derived from its own
+	// provisioning profile, and re-apply the explicit blob only to the matching
+	// target below. Adhoc signing keeps the explicit entitlements as before.
+	string explicitEntitlements;
+	string explicitAppId;
+	if (!entitlementsFile.empty()) {
+		if (ZFile::ReadFile(entitlementsFile.c_str(), explicitEntitlements) && !explicitEntitlements.empty()) {
+			jvalue jvEnt;
+			if (jvEnt.read_plist(explicitEntitlements)) {
+				explicitAppId = jvEnt["application-identifier"].as_cstr();
+			}
+		}
+	}
+	const bool bPerTargetEntitlements = !bAdhoc && !explicitEntitlements.empty();
+
 	list<ZSignAsset> zsaList;
 	for (const string& provPath : provPaths) {
 		zsaList.push_back(ZSignAsset());
-		if (!zsaList.back().Init(certFile, pkeyFile, provPath, entitlementsFile, passwd, bAdhoc, bSHA256Only, false)) {
+		if (!zsaList.back().Init(certFile, pkeyFile, provPath,
+				bPerTargetEntitlements ? string() : entitlementsFile,
+				passwd, bAdhoc, bSHA256Only, false)) {
 			ZLog::ErrorV(">>> Failed to init provisioning profile: %s\n", provPath.c_str());
 			zsaList.pop_back();
 		}
 	}
 	if (zsaList.empty()) {
 		return -303;
+	}
+
+	if (bPerTargetEntitlements) {
+		// Match by application-identifier. When the explicit entitlements carry no
+		// application-identifier there is nothing to match on, so keep the historical
+		// behavior of applying them to every target.
+		for (ZSignAsset& zsa : zsaList) {
+			if (explicitAppId.empty() || zsa.m_strApplicationId == explicitAppId) {
+				zsa.m_strEntitleData = explicitEntitlements;
+			}
+		}
 	}
 
 	ZBundle bundle;

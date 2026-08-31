@@ -379,14 +379,22 @@ bool ZArchO::BuildCodeSignature(ZSignAsset* pSignAsset,
 
 	uint64_t uExecSegFlags = 0;
 	if (MH_EXECUTE == m_uFileType) {
-		if (pSignAsset->m_bAdhoc || pSignAsset->m_bSingleBinary) {
-			uExecSegFlags = CS_EXECSEG_MAIN_BINARY;
-		}
-	}
+		// The main executable always carries the main-binary flag (Apple sets it
+		// on every MH_EXECUTE, not only ad-hoc/single-binary signings).
+		uExecSegFlags |= CS_EXECSEG_MAIN_BINARY;
 
-	if (NULL != strstr(strEntitlementsSlot.data() + 8, "<key>get-task-allow</key>")) {
-		// TODO: Check if get-task-allow is actually set to true
-		uExecSegFlags |= CS_EXECSEG_MAIN_BINARY | CS_EXECSEG_ALLOW_UNSIGNED;
+		// The allow-unsigned flag must only be set when get-task-allow is actually
+		// true (development builds). A distribution binary that sets it while
+		// get-task-allow is false (or absent) is rejected on submission.
+		const char* pEntitlements = (strEntitlementsSlot.size() > 8) ? (strEntitlementsSlot.data() + 8) : "";
+		const char* pGetTaskAllow = strstr(pEntitlements, "<key>get-task-allow</key>");
+		if (NULL != pGetTaskAllow) {
+			const char* pTrue = strstr(pGetTaskAllow, "<true/>");
+			const char* pFalse = strstr(pGetTaskAllow, "<false/>");
+			if (NULL != pTrue && (NULL == pFalse || pTrue < pFalse)) {
+				uExecSegFlags |= CS_EXECSEG_ALLOW_UNSIGNED;
+			}
+		}
 	}
 
 	string strCodeDirectorySlot;

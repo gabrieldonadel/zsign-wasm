@@ -146,7 +146,7 @@ bool ZSignAsset::CMSError()
 	return false;
 }
 
-void* ZSignAsset::GenerateASN1Type(const string& value)
+void* ZSignAsset::GenerateASN1Type(const string& strOID, const string& value)
 {
 	long errline = -1;
 	char* genstr = NULL;
@@ -157,7 +157,8 @@ void* ZSignAsset::GenerateASN1Type(const string& value)
 		ZLog::Error(">>> NCONF_new failed\n");
 		BIO_free(ldapbio);
 	}
-	string a = "asn1=SEQUENCE:A\n[A]\nC=OBJECT:sha256\nB=FORMAT:HEX,OCT:" + value + "\n";
+	// AgileHash ::= SEQUENCE { hashType OBJECT IDENTIFIER, hashValue OCTET STRING }
+	string a = "asn1=SEQUENCE:A\n[A]\nC=OBJECT:" + strOID + "\nB=FORMAT:HEX,OCT:" + value + "\n";
 	int code = BIO_puts(ldapbio, a.c_str());
 	if (NCONF_load_bio(cnf, ldapbio, &errline) <= 0) {
 		BIO_free(ldapbio);
@@ -249,15 +250,23 @@ bool ZSignAsset::GenerateCMS(void* pscert, void* pspkey, const string& strCDHash
 		return CMSError();
 	}
 
-	// add CDHashes
+	// add CDHashes V2 (Apple Codesigning Hash Agility V2, OID 1.2.840.113635.100.9.2).
+	// This attribute is `SET OF AgileHash`, one AgileHash per code directory. Apple's
+	// verifier (Security StaticCode) rejects the signature unless the number of entries
+	// equals the number of code directories and each code directory's untruncated cdhash
+	// is present under its digest OID. zsign emits a SHA-1 primary + SHA-256 alternate
+	// code directory, so both hashes must be listed here.
 	static const char hex_upper[] = "0123456789ABCDEF";
-	string sha256;
-	sha256.reserve(strAltnateCodeDirectorySlot256.size() * 2);
-	for (size_t i = 0; i < strAltnateCodeDirectorySlot256.size(); i++) {
-		uint8_t c = (uint8_t)strAltnateCodeDirectorySlot256[i];
-		sha256 += hex_upper[c >> 4];
-		sha256 += hex_upper[c & 0x0F];
-	}
+	auto toHex = [](const string& raw) {
+		string hex;
+		hex.reserve(raw.size() * 2);
+		for (size_t i = 0; i < raw.size(); i++) {
+			uint8_t c = (uint8_t)raw[i];
+			hex += hex_upper[c >> 4];
+			hex += hex_upper[c & 0x0F];
+		}
+		return hex;
+	};
 
 	ASN1_OBJECT* obj2 = OBJ_txt2obj("1.2.840.113635.100.9.2", 1);
 	if (!obj2) {
@@ -267,10 +276,26 @@ bool ZSignAsset::GenerateCMS(void* pscert, void* pspkey, const string& strCDHash
 	X509_ATTRIBUTE* attr = X509_ATTRIBUTE_new();
 	X509_ATTRIBUTE_set1_object(attr, obj2);
 
-	ASN1_TYPE* type_256 = (ASN1_TYPE*)GenerateASN1Type(sha256);
-	X509_ATTRIBUTE_set1_data(attr, V_ASN1_SEQUENCE,
-		type_256->value.asn1_string->data, type_256->value.asn1_string->length);
+	// Each call appends one AgileHash value to the attribute's value set.
+	std::vector<ASN1_TYPE*> agileHashTypes;
+	if (!strCodeDirectorySlotSHA1.empty()) {
+		ASN1_TYPE* type_sha1 = (ASN1_TYPE*)GenerateASN1Type("sha1", toHex(strCodeDirectorySlotSHA1));
+		X509_ATTRIBUTE_set1_data(attr, V_ASN1_SEQUENCE,
+			type_sha1->value.asn1_string->data, type_sha1->value.asn1_string->length);
+		agileHashTypes.push_back(type_sha1);
+	}
+	if (!strAltnateCodeDirectorySlot256.empty()) {
+		ASN1_TYPE* type_256 = (ASN1_TYPE*)GenerateASN1Type("sha256", toHex(strAltnateCodeDirectorySlot256));
+		X509_ATTRIBUTE_set1_data(attr, V_ASN1_SEQUENCE,
+			type_256->value.asn1_string->data, type_256->value.asn1_string->length);
+		agileHashTypes.push_back(type_256);
+	}
+
 	int addHashSHA = CMS_signed_add1_attr(si, attr);
+	X509_ATTRIBUTE_free(attr);
+	for (size_t i = 0; i < agileHashTypes.size(); i++) {
+		ASN1_TYPE_free(agileHashTypes[i]);
+	}
 	if (!addHashSHA) {
 		return CMSError();
 	}
@@ -297,7 +322,6 @@ bool ZSignAsset::GenerateCMS(void* pscert, void* pspkey, const string& strCDHash
 
 	strCMSOutput.clear();
 	strCMSOutput.append(bptr->data, bptr->length);
-	ASN1_TYPE_free(type_256);
 	return (!strCMSOutput.empty());
 }
 

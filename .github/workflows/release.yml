@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      # npm (not bun) does the publish: OIDC trusted publishing needs
+      # npm >= 11.5.1. Pin npm 11 — npm 12 dropped Node 20 support.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g npm@11
+
+      - run: bun install --frozen-lockfile
+
+      # binary/ (the WASM build) is committed to git, so CI does not need
+      # emscripten. Only dist/ (plain tsc) is built here.
+      - run: bun run build:dist
+
+      - name: Check tag matches package.json version
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+
+      # --ignore-scripts skips prepack (build:dist already ran above).
+      # No registry-url needed: OIDC trusted publishing uses no .npmrc auth.
+      - run: npm publish --ignore-scripts

@@ -393,6 +393,28 @@ bool ZBundle::SignNode(jvalue& jvNode)
 		}
 	}
 
+	// Write this bundle's provisioning profile BEFORE generating CodeResources so
+	// the seal covers embedded.mobileprovision. Writing it afterwards leaves the
+	// seal referencing the previous profile, which Apple rejects as an invalid or
+	// modified sealed resource (altool error 90034). This matters for nested
+	// bundles such as app extensions, whose profile changes during a repack.
+	if (m_pSignAssets) {
+		auto endsWith = [](const string& str, const string& suffix) {
+			return str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
+		};
+
+		for (auto it = m_pSignAssets->rbegin(); it != m_pSignAssets->rend(); ++it) {
+			m_pSignAsset = &(*it);
+			if (endsWith(m_pSignAsset->m_strApplicationId, strBundleId)) {
+				if (!ZFile::WriteFileV(m_pSignAsset->m_strProvData, "%s/%s/embedded.mobileprovision", m_strAppFolder.c_str(), strFolder.c_str())) {
+					ZLog::ErrorV(">>> Can't write embedded.mobileprovision!\n");
+					return false;
+				}
+				break;
+			}
+		}
+	}
+
 	ZFile::CreateFolderV("%s/_CodeSignature", strBaseFolder.c_str());
 	string strCodeResFile = strBaseFolder + "/_CodeSignature/CodeResources";
 
@@ -436,40 +458,6 @@ bool ZBundle::SignNode(jvalue& jvNode)
 	if (!ZFile::WriteFile(strCodeResFile.c_str(), strCodeResData)) {
 		ZLog::ErrorV("\tWriting CodeResources failed! %s\n", strCodeResFile.c_str());
 		return false;
-	}
-
-	if (m_pSignAssets) {
-		auto endsWith = [](const string& str, const string& suffix) {
-			return str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
-		};
-
-		for (auto it = m_pSignAssets->rbegin(); it != m_pSignAssets->rend(); ++it) {
-			m_pSignAsset = &(*it);
-			if (endsWith(m_pSignAsset->m_strApplicationId, strBundleId)) {
-				if (!ZFile::WriteFileV(m_pSignAsset->m_strProvData, "%s/%s/embedded.mobileprovision", m_strAppFolder.c_str(), strFolder.c_str())) {
-					ZLog::ErrorV(">>> Can't write embedded.mobileprovision!\n");
-					return false;
-				}
-				break;
-			}
-		}
-	}
-
-	if (m_pSignAssets) {
-		auto endsWith = [](const string& str, const string& suffix) {
-			return str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);
-		};
-
-		for (auto it = m_pSignAssets->rbegin(); it != m_pSignAssets->rend(); ++it) {
-			m_pSignAsset = &(*it);
-			if (endsWith(m_pSignAsset->m_strApplicationId, strBundleId)) {
-				if (!ZFile::WriteFileV(m_pSignAsset->m_strProvData, "%s/%s/embedded.mobileprovision", m_strAppFolder.c_str(), strFolder.c_str())) {
-					ZLog::ErrorV(">>> Can't write embedded.mobileprovision!\n");
-					return false;
-				}
-				break;
-			}
-		}
 	}
 
 	if (!macho.Sign(m_pSignAsset, bForceSign, strBundleId, strInfoSHA1, strInfoSHA256, strCodeResData)) {

@@ -1,6 +1,6 @@
 {
   "name": "zsign-wasm",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "WASM full resigning toolkit packaged with stable src/dist/binary directories.",
   "license": "MIT",
   "repository": {
